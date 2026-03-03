@@ -1,0 +1,142 @@
+{
+  "projectType": "framework",
+  "projectName": "Bubble Tea",
+  "projectDescription": "A powerful little TUI framework based on The Elm Architecture for building terminal applications in Go.",
+  "theme": "palm",
+  "primaryColor": "#FF69B4",
+  "lightColor": "#FF8FCC",
+  "darkColor": "#E94B9B",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/model",
+              "concepts/messages",
+              "concepts/commands",
+              "concepts/views"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/input-handling",
+              "guides/mouse-support",
+              "guides/styling",
+              "guides/async-operations",
+              "guides/debugging",
+              "guides/testing"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/custom-renderer",
+              "advanced/performance",
+              "advanced/middleware"
+            ]
+          },
+          {
+            "group": "Migration",
+            "pages": [
+              "migration/v2-upgrade-guide"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/program",
+              "api/model-interface",
+              "api/view",
+              "api/cmd"
+            ]
+          },
+          {
+            "group": "Messages",
+            "pages": [
+              "api/messages/keyboard",
+              "api/messages/mouse",
+              "api/messages/window",
+              "api/messages/clipboard",
+              "api/messages/focus"
+            ]
+          },
+          {
+            "group": "Commands",
+            "pages": [
+              "api/commands/batch-sequence",
+              "api/commands/tick-every",
+              "api/commands/exec"
+            ]
+          },
+          {
+            "group": "Options",
+            "pages": [
+              "api/program-options"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              "examples/simple-list",
+              "examples/forms",
+              "examples/spinners",
+              "examples/mouse-events"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Elm Architecture-based functional design",
+    "High-performance cell-based renderer",
+    "Full keyboard and mouse support",
+    "Native clipboard integration",
+    "Built-in color downsampling",
+    "Declarative views",
+    "Alt screen and inline modes",
+    "Context and signal handling"
+  ],
+  "publicApiSurface": [
+    "NewProgram",
+    "Model interface (Init, Update, View)",
+    "Cmd and Msg types",
+    "Batch and Sequence commands",
+    "Tick and Every commands",
+    "KeyPressMsg",
+    "MouseClickMsg, MouseReleaseMsg, MouseMotionMsg, MouseWheelMsg",
+    "WindowSizeMsg",
+    "View and NewView",
+    "Program.Run",
+    "WithInput, WithOutput, WithContext",
+    "WithFilter, WithFPS, WithColorProfile",
+    "WithoutRenderer, WithoutSignalHandler",
+    "Quit command",
+    "ExecProcess",
+    "SetClipboard, ReadClipboard"
+  ]
+}
