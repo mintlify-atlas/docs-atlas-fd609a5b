@@ -1,0 +1,441 @@
+---
+title: Mouse Support
+description: Handle mouse clicks, movement, and wheel events in Bubble Tea applications
+---
+
+## Overview
+
+Bubble Tea provides comprehensive mouse support, allowing you to handle clicks, releases, motion, and wheel events. Mouse support is enabled per-view through the `View.MouseMode` property.
+
+## Mouse Messages
+
+Mouse events are delivered through four message types:
+
+- `MouseClickMsg` - Mouse button pressed
+- `MouseReleaseMsg` - Mouse button released  
+- `MouseMotionMsg` - Mouse moved
+- `MouseWheelMsg` - Mouse wheel scrolled
+
+### Mouse Structure
+
+All mouse messages wrap the `Mouse` type:
+
+```go mouse.go:71-75
+type Mouse struct {
+    X, Y   int          // Zero-based coordinates (0,0 = top-left)
+    Button MouseButton  // Which button was involved
+    Mod    KeyMod       // Modifier keys held during event
+}
+```
+
+## Mouse Buttons
+
+Bubble Tea supports all standard mouse buttons:
+
+```go mouse.go:29-42
+const (
+    MouseLeft       // Left button
+    MouseMiddle     // Middle button (scroll wheel click)
+    MouseRight      // Right button
+    MouseWheelUp    // Scroll wheel up
+    MouseWheelDown  // Scroll wheel down
+    MouseWheelLeft  // Scroll wheel left
+    MouseWheelRight // Scroll wheel right
+    MouseBackward   // Browser back button
+    MouseForward    // Browser forward button
+    MouseButton10
+    MouseButton11
+)
+```
+
+## Enabling Mouse Support
+
+Enable mouse support by setting `MouseMode` on your view:
+
+```go examples/mouse/main.go:40-44
+func (m model) View() tea.View {
+    v := tea.NewView("Do mouse stuff. When you're done press q to quit.\n")
+    v.MouseMode = tea.MouseModeAllMotion
+    return v
+}
+```
+
+### Mouse Modes
+
+<CardGroup cols={2}>
+  <Card title="MouseModeAllMotion" icon="arrows">
+    Track all mouse movement, even without buttons pressed
+  </Card>
+  <Card title="MouseModeButtonMotion" icon="hand-pointer">
+    Track mouse movement only when a button is held
+  </Card>
+  <Card title="MouseModeClickOnly" icon="hand">
+    Only receive click and release events
+  </Card>
+</CardGroup>
+
+## Basic Mouse Handling
+
+### Catching All Mouse Events
+
+Use the `MouseMsg` interface to handle all mouse events:
+
+```go examples/mouse/main.go:25-38
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if s := msg.String(); s == "ctrl+c" || s == "q" || s == "esc" {
+            return m, tea.Quit
+        }
+
+    case tea.MouseMsg:
+        mouse := msg.Mouse()
+        return m, tea.Printf("(X: %d, Y: %d) %s", mouse.X, mouse.Y, mouse)
+    }
+
+    return m, nil
+}
+```
+
+### Specific Event Types
+
+Handle specific mouse events:
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        mouse := msg.Mouse()
+        if mouse.Button == tea.MouseLeft {
+            return m, handleClick(mouse.X, mouse.Y)
+        }
+        
+    case tea.MouseReleaseMsg:
+        return m, handleRelease()
+        
+    case tea.MouseWheelMsg:
+        mouse := msg.Mouse()
+        if mouse.Button == tea.MouseWheelUp {
+            return m, scrollUp()
+        } else if mouse.Button == tea.MouseWheelDown {
+            return m, scrollDown()
+        }
+        
+    case tea.MouseMotionMsg:
+        mouse := msg.Mouse()
+        return m, updateHover(mouse.X, mouse.Y)
+    }
+    return m, nil
+}
+```
+
+## Mouse Event Details
+
+### Click Events
+
+`MouseClickMsg` is sent when a mouse button is pressed:
+
+```go mouse.go:82-95
+type MouseClickMsg Mouse
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        mouse := msg.Mouse()
+        
+        // Check button
+        if mouse.Button == tea.MouseLeft {
+            fmt.Printf("Left click at (%d, %d)\n", mouse.X, mouse.Y)
+        }
+    }
+    return m, nil
+}
+```
+
+### Release Events
+
+`MouseReleaseMsg` is sent when a mouse button is released:
+
+```go mouse.go:97-110
+type MouseReleaseMsg Mouse
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseReleaseMsg:
+        // Handle drag completion
+        if m.dragging {
+            m.dragging = false
+            return m, completeDrag()
+        }
+    }
+    return m, nil
+}
+```
+
+### Wheel Events
+
+`MouseWheelMsg` is sent for scroll wheel actions:
+
+```go mouse.go:112-125
+type MouseWheelMsg Mouse
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseWheelMsg:
+        mouse := msg.Mouse()
+        switch mouse.Button {
+        case tea.MouseWheelUp:
+            m.scroll -= 3
+        case tea.MouseWheelDown:
+            m.scroll += 3
+        case tea.MouseWheelLeft:
+            m.scrollX -= 3
+        case tea.MouseWheelRight:
+            m.scrollX += 3
+        }
+    }
+    return m, nil
+}
+```
+
+### Motion Events
+
+`MouseMotionMsg` is sent when the mouse moves:
+
+```go mouse.go:127-144
+type MouseMotionMsg Mouse
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseMotionMsg:
+        mouse := msg.Mouse()
+        
+        // Track hover state
+        m.hoverX = mouse.X
+        m.hoverY = mouse.Y
+        
+        // Handle dragging
+        if mouse.Button != tea.MouseNone {
+            // Button is held during motion - this is a drag
+            m.dragging = true
+        }
+    }
+    return m, nil
+}
+```
+
+## Common Patterns
+
+### Click Detection
+
+```go
+type model struct {
+    buttons []Button
+}
+
+type Button struct {
+    X, Y, Width, Height int
+    Label string
+}
+
+func (b Button) Contains(x, y int) bool {
+    return x >= b.X && x < b.X+b.Width &&
+           y >= b.Y && y < b.Y+b.Height
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        mouse := msg.Mouse()
+        for i, btn := range m.buttons {
+            if btn.Contains(mouse.X, mouse.Y) {
+                return m, handleButton(i)
+            }
+        }
+    }
+    return m, nil
+}
+```
+
+### Drag and Drop
+
+```go
+type model struct {
+    dragging bool
+    dragStartX, dragStartY int
+    dragItem int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        mouse := msg.Mouse()
+        m.dragging = true
+        m.dragStartX = mouse.X
+        m.dragStartY = mouse.Y
+        m.dragItem = m.itemAt(mouse.X, mouse.Y)
+        
+    case tea.MouseMotionMsg:
+        if m.dragging {
+            mouse := msg.Mouse()
+            return m, updateDragPosition(mouse.X, mouse.Y)
+        }
+        
+    case tea.MouseReleaseMsg:
+        if m.dragging {
+            m.dragging = false
+            mouse := msg.Mouse()
+            return m, dropItem(m.dragItem, mouse.X, mouse.Y)
+        }
+    }
+    return m, nil
+}
+```
+
+### Hover Effects
+
+```go
+type model struct {
+    hoverItem int
+    items []string
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseMotionMsg:
+        mouse := msg.Mouse()
+        m.hoverItem = mouse.Y  // Assuming one item per line
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    var s string
+    for i, item := range m.items {
+        if i == m.hoverItem {
+            s += "> " + item + " <\n"  // Highlight hovered item
+        } else {
+            s += "  " + item + "  \n"
+        }
+    }
+    v := tea.NewView(s)
+    v.MouseMode = tea.MouseModeAllMotion
+    return v
+}
+```
+
+### Scroll Handling
+
+```go
+type model struct {
+    offset int
+    content []string
+    height int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseWheelMsg:
+        mouse := msg.Mouse()
+        switch mouse.Button {
+        case tea.MouseWheelUp:
+            m.offset = max(0, m.offset-1)
+        case tea.MouseWheelDown:
+            m.offset = min(len(m.content)-m.height, m.offset+1)
+        }
+    }
+    return m, nil
+}
+```
+
+## Modifier Keys
+
+Detect modifier keys held during mouse events:
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        mouse := msg.Mouse()
+        
+        if mouse.Mod&tea.ModCtrl != 0 {
+            // Ctrl was held during click
+            return m, handleCtrlClick(mouse.X, mouse.Y)
+        }
+        
+        if mouse.Mod&tea.ModShift != 0 {
+            // Shift was held - extend selection
+            return m, extendSelection(mouse.X, mouse.Y)
+        }
+    }
+    return m, nil
+}
+```
+
+## Coordinate System
+
+Mouse coordinates are zero-based with `(0, 0)` at the top-left corner:
+
+```go mouse.go:56-64
+// The X and Y coordinates are zero-based, with (0,0) being the upper left
+// corner of the terminal.
+
+switch msg := msg.(type) {
+case tea.MouseMsg:
+    m := msg.Mouse()
+    fmt.Println("Mouse event:", m.X, m.Y, m)
+}
+```
+
+<Note>
+Coordinates are relative to the terminal window, not your view. If you're rendering content with offsets, you'll need to adjust coordinates accordingly.
+</Note>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choose the Right Mouse Mode">
+    - Use `MouseModeClickOnly` for buttons and simple interactions
+    - Use `MouseModeButtonMotion` for drag operations
+    - Use `MouseModeAllMotion` only when you need hover effects
+  </Accordion>
+
+  <Accordion title="Provide Keyboard Alternatives">
+    Always provide keyboard shortcuts for mouse actions:
+    
+    ```go
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "enter":
+            return m, handleClick(m.selectedX, m.selectedY)
+        }
+    ```
+  </Accordion>
+
+  <Accordion title="Bounds Check Coordinates">
+    Always validate mouse coordinates against your UI bounds:
+    
+    ```go
+    if mouse.X < 0 || mouse.X >= m.width || 
+       mouse.Y < 0 || mouse.Y >= m.height {
+        return m, nil
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use the MouseMsg Interface">
+    Catch all mouse events with `MouseMsg` when you don't need to distinguish:
+    
+    ```go examples/mouse/main.go:32-34
+    case tea.MouseMsg:
+        mouse := msg.Mouse()
+        return m, tea.Printf("(X: %d, Y: %d) %s", mouse.X, mouse.Y, mouse)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+- [Input Handling](/guides/input-handling) - Handle keyboard input
+- [Styling](/guides/styling) - Style your interactive UI elements
+- [Testing](/guides/testing) - Test mouse interactions

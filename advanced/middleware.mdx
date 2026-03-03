@@ -1,0 +1,484 @@
+---
+title: Middleware
+description: Filter and transform messages with Bubble Tea middleware
+icon: filter
+---
+
+## Overview
+
+Middleware in Bubble Tea allows you to intercept and transform messages before they reach your `Update` function. This enables powerful patterns like validation, logging, access control, and message transformation.
+
+## WithFilter Option
+
+The `WithFilter` option provides middleware capabilities by supplying an event filter that processes messages before Bubble Tea handles them:
+
+```go
+func WithFilter(filter func(Model, Msg) Msg) ProgramOption
+```
+
+### How It Works
+
+1. **Message arrives**: User input, commands, or other events generate a message
+2. **Filter intercepts**: Your filter function receives the model and message
+3. **Transform or block**: Return a modified message, different message, or `nil`
+4. **Continue processing**: The returned message (if not `nil`) goes to `Update`
+
+From `tea.go:735-741`:
+```go
+case msg := <-p.msgs:
+    msg = p.translateInputEvent(msg)
+
+    // Filter messages.
+    if p.filter != nil {
+        msg = p.filter(model, msg)
+    }
+    if msg == nil {
+        continue // Message was blocked
+    }
+```
+
+<Note>
+Returning `nil` from your filter function blocks the message entirely - it won't reach your `Update` method.
+</Note>
+
+## Basic Usage
+
+### Blocking Quit Messages
+
+Prevent users from quitting when there are unsaved changes:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    tea "github.com/charmbracelet/bubbletea"
+)
+
+type model struct {
+    content    string
+    hasChanges bool
+}
+
+func (m model) Init() tea.Cmd {
+    return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        switch msg.String() {
+        case "ctrl+c":
+            return m, tea.Quit
+        default:
+            m.content += msg.String()
+            m.hasChanges = true
+        }
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    status := "No changes"
+    if m.hasChanges {
+        status = "Unsaved changes!"
+    }
+    content := fmt.Sprintf("%s\n\nContent: %s\n\nPress Ctrl+C to quit",
+        status, m.content)
+    return tea.NewView(content)
+}
+
+// Filter function blocks quit attempts when there are unsaved changes
+func filter(m tea.Model, msg tea.Msg) tea.Msg {
+    // Type assert to access our model fields
+    model := m.(model)
+    
+    // Check if this is a quit message
+    if _, ok := msg.(tea.QuitMsg); ok {
+        // Block quit if there are unsaved changes
+        if model.hasChanges {
+            return nil // Block the message
+        }
+    }
+    
+    return msg // Allow the message through
+}
+
+func main() {
+    p := tea.NewProgram(
+        model{},
+        tea.WithFilter(filter),
+    )
+    
+    if _, err := p.Run(); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+## Message Filtering Patterns
+
+### 1. Message Blocking
+
+Block messages from reaching your update function:
+
+```go
+func blockingFilter(m tea.Model, msg tea.Msg) tea.Msg {
+    model := m.(myModel)
+    
+    // Block all input when loading
+    if model.loading {
+        switch msg.(type) {
+        case tea.KeyMsg:
+            return nil // Block keyboard input
+        case tea.MouseMsg:
+            return nil // Block mouse input
+        }
+    }
+    
+    return msg
+}
+```
+
+### 2. Message Transformation
+
+Transform messages before they reach your update function:
+
+```go
+func transformFilter(m tea.Model, msg tea.Msg) tea.Msg {
+    // Convert Enter key to a custom command
+    if keyMsg, ok := msg.(tea.KeyMsg); ok {
+        if keyMsg.String() == "enter" {
+            return submitMsg{} // Custom message type
+        }
+    }
+    
+    return msg
+}
+
+type submitMsg struct{}
+```
+
+### 3. Message Logging
+
+Log all messages for debugging:
+
+```go
+import "log"
+
+func loggingFilter(m tea.Model, msg tea.Msg) tea.Msg {
+    log.Printf("Message: %T %+v", msg, msg)
+    return msg // Pass through unchanged
+}
+```
+
+### 4. Rate Limiting
+
+Limit the frequency of certain messages:
+
+```go
+import (
+    "time"
+    tea "github.com/charmbracelet/bubbletea"
+)
+
+type rateLimitFilter struct {
+    lastUpdate time.Time
+    minDelay   time.Duration
+}
+
+func (rl *rateLimitFilter) filter(m tea.Model, msg tea.Msg) tea.Msg {
+    // Rate limit specific message types
+    if _, ok := msg.(updateMsg); ok {
+        now := time.Now()
+        if now.Sub(rl.lastUpdate) < rl.minDelay {
+            return nil // Block - too frequent
+        }
+        rl.lastUpdate = now
+    }
+    
+    return msg
+}
+
+func main() {
+    rl := &rateLimitFilter{minDelay: 100 * time.Millisecond}
+    
+    p := tea.NewProgram(
+        model{},
+        tea.WithFilter(rl.filter),
+    )
+    p.Run()
+}
+```
+
+### 5. Access Control
+
+Implement permission-based message filtering:
+
+```go
+type permissions struct {
+    canEdit   bool
+    canDelete bool
+}
+
+func accessControlFilter(perms permissions) func(tea.Model, tea.Msg) tea.Msg {
+    return func(m tea.Model, msg tea.Msg) tea.Msg {
+        switch msg := msg.(type) {
+        case editMsg:
+            if !perms.canEdit {
+                return unauthorizedMsg{"edit"}
+            }
+        case deleteMsg:
+            if !perms.canDelete {
+                return unauthorizedMsg{"delete"}
+            }
+        }
+        return msg
+    }
+}
+
+type editMsg struct{}
+type deleteMsg struct{}
+type unauthorizedMsg struct{ action string }
+```
+
+## Advanced Patterns
+
+### Composing Multiple Filters
+
+Chain multiple filters together:
+
+```go
+func composeFilters(filters ...func(tea.Model, tea.Msg) tea.Msg) func(tea.Model, tea.Msg) tea.Msg {
+    return func(m tea.Model, msg tea.Msg) tea.Msg {
+        for _, filter := range filters {
+            msg = filter(m, msg)
+            if msg == nil {
+                return nil // Short-circuit if blocked
+            }
+        }
+        return msg
+    }
+}
+
+func main() {
+    combinedFilter := composeFilters(
+        loggingFilter,
+        accessControlFilter(permissions{canEdit: true}),
+        rateLimitFilter,
+    )
+    
+    p := tea.NewProgram(
+        model{},
+        tea.WithFilter(combinedFilter),
+    )
+    p.Run()
+}
+```
+
+### Conditional Filtering
+
+Apply different filtering logic based on application state:
+
+```go
+func conditionalFilter(m tea.Model, msg tea.Msg) tea.Msg {
+    model := m.(myModel)
+    
+    switch model.mode {
+    case editMode:
+        return editModeFilter(model, msg)
+    case viewMode:
+        return viewModeFilter(model, msg)
+    case debugMode:
+        // In debug mode, log everything
+        log.Printf("Debug: %T %+v", msg, msg)
+        return msg
+    }
+    
+    return msg
+}
+```
+
+### Message Enrichment
+
+Add context or metadata to messages:
+
+```go
+import "time"
+
+type enrichedMsg struct {
+    original  tea.Msg
+    timestamp time.Time
+    userID    string
+}
+
+func enrichmentFilter(userID string) func(tea.Model, tea.Msg) tea.Msg {
+    return func(m tea.Model, msg tea.Msg) tea.Msg {
+        // Don't re-enrich already enriched messages
+        if _, ok := msg.(enrichedMsg); ok {
+            return msg
+        }
+        
+        return enrichedMsg{
+            original:  msg,
+            timestamp: time.Now(),
+            userID:    userID,
+        }
+    }
+}
+```
+
+## Real-World Examples
+
+### Confirmation Dialog for Destructive Actions
+
+```go
+type model struct {
+    confirmDelete bool
+    deleteTarget  string
+}
+
+func confirmationFilter(m tea.Model, msg tea.Msg) tea.Msg {
+    model := m.(model)
+    
+    if deleteMsg, ok := msg.(deleteRequestMsg); ok {
+        if !model.confirmDelete {
+            // Block the delete and show confirmation dialog
+            return showConfirmationMsg{deleteMsg.target}
+        }
+    }
+    
+    return msg
+}
+
+type deleteRequestMsg struct{ target string }
+type showConfirmationMsg struct{ target string }
+```
+
+### Audit Logging
+
+```go
+import (
+    "log"
+    "time"
+)
+
+func auditFilter(m tea.Model, msg tea.Msg) tea.Msg {
+    // Log security-sensitive messages
+    switch msg := msg.(type) {
+    case loginMsg:
+        log.Printf("AUDIT: Login attempt by %s at %v", msg.username, time.Now())
+    case deleteMsg:
+        log.Printf("AUDIT: Delete operation on %s at %v", msg.target, time.Now())
+    case permissionChangeMsg:
+        log.Printf("AUDIT: Permission changed for %s at %v", msg.user, time.Now())
+    }
+    
+    return msg
+}
+```
+
+### Input Validation
+
+```go
+func validationFilter(m tea.Model, msg tea.Msg) tea.Msg {
+    if keyMsg, ok := msg.(tea.KeyMsg); ok {
+        model := m.(myModel)
+        
+        // Validate input based on current field
+        if model.activeField == "email" {
+            // Only allow valid email characters
+            if !isValidEmailChar(keyMsg.String()) {
+                return nil // Block invalid input
+            }
+        }
+        
+        if model.activeField == "phone" {
+            // Only allow digits and formatting characters
+            if !isValidPhoneChar(keyMsg.String()) {
+                return nil
+            }
+        }
+    }
+    
+    return msg
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Keep Filters Pure" icon="circle-check">
+    Filters should be pure functions without side effects (except logging)
+  </Card>
+  <Card title="Fail Safe" icon="shield">
+    When in doubt, allow the message through rather than blocking it
+  </Card>
+  <Card title="Document Blocking" icon="book">
+    Clearly document when and why messages are blocked
+  </Card>
+  <Card title="Avoid Heavy Logic" icon="bolt">
+    Keep filters fast - they run on every message
+  </Card>
+</CardGroup>
+
+<Warning>
+Filters run on every message. Keep them fast and avoid expensive operations.
+</Warning>
+
+## Filter Function Signature
+
+From `options.go:104-137`:
+
+```go
+// WithFilter supplies an event filter that will be invoked before Bubble Tea
+// processes a tea.Msg. The event filter can return any tea.Msg which will then
+// get handled by Bubble Tea instead of the original event. If the event filter
+// returns nil, the event will be ignored and Bubble Tea will not process it.
+func WithFilter(filter func(Model, Msg) Msg) ProgramOption {
+    return func(p *Program) {
+        p.filter = filter
+    }
+}
+```
+
+**Parameters:**
+- `Model`: The current model (read-only access)
+- `Msg`: The message to filter
+
+**Returns:**
+- The message to process (can be transformed)
+- `nil` to block the message
+
+<Tip>
+You have read-only access to the model in filters. To modify the model, return a custom message that your `Update` function handles.
+</Tip>
+
+## Testing Filters
+
+```go
+func TestFilter(t *testing.T) {
+    m := model{hasChanges: true}
+    
+    // Test that quit is blocked with unsaved changes
+    result := filter(m, tea.QuitMsg{})
+    if result != nil {
+        t.Error("Expected quit to be blocked")
+    }
+    
+    // Test that quit is allowed without changes
+    m.hasChanges = false
+    result = filter(m, tea.QuitMsg{})
+    if result == nil {
+        t.Error("Expected quit to be allowed")
+    }
+}
+```
+
+## Related Options
+
+- [Message Processing](/core-concepts/messages) - Understanding messages in Bubble Tea
+- [Update Function](/core-concepts/update) - How messages are processed
+- [Commands](/core-concepts/commands) - Generating messages from commands

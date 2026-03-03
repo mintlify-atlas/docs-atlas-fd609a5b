@@ -1,0 +1,589 @@
+---
+title: Testing
+description: Test your Bubble Tea applications with input/output mocking and test utilities
+---
+
+## Overview
+
+Bubble Tea applications are highly testable thanks to their functional architecture. The framework provides options for mocking input/output and controlling the test environment.
+
+## Test Program Options
+
+Bubble Tea provides several options for creating testable programs:
+
+### WithInput
+
+Mock keyboard input:
+
+```go options.go:36-45
+import "bytes"
+
+func TestApp(t *testing.T) {
+    var buf bytes.Buffer
+    var in bytes.Buffer
+    
+    // Simulate typing "q" to quit
+    in.Write([]byte("q"))
+    
+    p := tea.NewProgram(model{},
+        tea.WithInput(&in),
+        tea.WithOutput(&buf),
+    )
+}
+```
+
+### WithOutput
+
+Capture program output:
+
+```go options.go:28-34
+import "bytes"
+
+func TestApp(t *testing.T) {
+    var buf bytes.Buffer
+    
+    p := tea.NewProgram(model{},
+        tea.WithOutput(&buf),
+    )
+    
+    if _, err := p.Run(); err != nil {
+        t.Fatal(err)
+    }
+    
+    output := buf.String()
+    if !strings.Contains(output, "expected text") {
+        t.Errorf("expected output to contain 'expected text', got: %s", output)
+    }
+}
+```
+
+### WithoutRenderer
+
+Disable the renderer for simpler testing:
+
+```go options.go:98-102
+func TestLogic(t *testing.T) {
+    p := tea.NewProgram(model{},
+        tea.WithoutRenderer(),
+    )
+    
+    // Output is sent directly without rendering
+}
+```
+
+### WithWindowSize
+
+Set initial window dimensions:
+
+```go options.go:159-168
+func TestResponsiveLayout(t *testing.T) {
+    p := tea.NewProgram(model{},
+        tea.WithWindowSize(80, 24),
+    )
+    
+    // Program starts with 80x24 terminal
+}
+```
+
+### WithContext
+
+Control program lifecycle with context:
+
+```go options.go:19-26
+import "context"
+
+func TestTimeout(t *testing.T) {
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+    
+    p := tea.NewProgram(&testModel{},
+        tea.WithContext(ctx),
+    )
+    
+    if _, err := p.Run(); err != nil {
+        t.Fatal(err)
+    }
+}
+```
+
+## Complete Test Example
+
+Here's a full test from the Bubble Tea source:
+
+```go tea_test.go:68-88
+func TestTeaModel(t *testing.T) {
+    var buf bytes.Buffer
+    var in bytes.Buffer
+    in.Write([]byte("q"))
+
+    ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+    defer cancel()
+
+    p := NewProgram(&testModel{},
+        WithContext(ctx),
+        WithInput(&in),
+        WithOutput(&buf),
+    )
+    if _, err := p.Run(); err != nil {
+        t.Fatal(err)
+    }
+
+    if buf.Len() == 0 {
+        t.Fatal("no output")
+    }
+}
+```
+
+## Testing Update Logic
+
+Test your Update method in isolation:
+
+```go
+func TestUpdate(t *testing.T) {
+    m := model{counter: 0}
+    
+    // Test key press
+    newModel, cmd := m.Update(tea.KeyPressMsg{
+        Code: tea.KeyEnter,
+    })
+    
+    m = newModel.(model)
+    if m.counter != 1 {
+        t.Errorf("expected counter=1, got %d", m.counter)
+    }
+    
+    if cmd == nil {
+        t.Error("expected command to be returned")
+    }
+}
+```
+
+## Testing View Output
+
+Test View rendering:
+
+```go
+func TestView(t *testing.T) {
+    m := model{
+        items: []string{"Item 1", "Item 2"},
+        cursor: 0,
+    }
+    
+    view := m.View()
+    output := view.String()
+    
+    if !strings.Contains(output, "Item 1") {
+        t.Error("expected view to contain 'Item 1'")
+    }
+    
+    if !strings.Contains(output, "Item 2") {
+        t.Error("expected view to contain 'Item 2'")
+    }
+}
+```
+
+## Testing Commands
+
+Test command execution:
+
+```go
+func TestCommand(t *testing.T) {
+    // Execute command
+    msg := fetchData()
+    
+    // Check result
+    switch msg := msg.(type) {
+    case dataMsg:
+        if len(msg.items) == 0 {
+            t.Error("expected data to be loaded")
+        }
+    case errMsg:
+        t.Errorf("unexpected error: %v", msg)
+    default:
+        t.Errorf("unexpected message type: %T", msg)
+    }
+}
+```
+
+## Testing with Mock Data
+
+```go
+type mockHTTPClient struct {
+    response *http.Response
+    err      error
+}
+
+func (m *mockHTTPClient) Get(url string) (*http.Response, error) {
+    return m.response, m.err
+}
+
+func TestHTTPCommand(t *testing.T) {
+    // Create mock response
+    mock := &mockHTTPClient{
+        response: &http.Response{
+            StatusCode: 200,
+            Body:       io.NopCloser(strings.NewReader(`{"status":"ok"}`)),
+        },
+    }
+    
+    // Test command with mock
+    msg := fetchWithClient(mock)
+    
+    switch msg := msg.(type) {
+    case successMsg:
+        if msg.status != "ok" {
+            t.Errorf("expected status=ok, got %s", msg.status)
+        }
+    default:
+        t.Errorf("unexpected message type: %T", msg)
+    }
+}
+```
+
+## Table-Driven Tests
+
+```go
+func TestKeyHandling(t *testing.T) {
+    tests := []struct {
+        name     string
+        key      string
+        expected model
+    }{
+        {
+            name: "arrow up",
+            key:  "up",
+            expected: model{cursor: 0},
+        },
+        {
+            name: "arrow down",
+            key:  "down",
+            expected: model{cursor: 1},
+        },
+        {
+            name: "enter key",
+            key:  "enter",
+            expected: model{selected: true},
+        },
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            m := model{cursor: 0}
+            
+            msg := tea.KeyPressMsg{}
+            // Set key...
+            
+            newModel, _ := m.Update(msg)
+            result := newModel.(model)
+            
+            if result.cursor != tt.expected.cursor {
+                t.Errorf("expected cursor=%d, got %d", 
+                    tt.expected.cursor, result.cursor)
+            }
+        })
+    }
+}
+```
+
+## Testing with Specific Color Profiles
+
+Test how your app looks with different color support:
+
+```go
+import "github.com/charmbracelet/colorprofile"
+
+func TestWithAscii(t *testing.T) {
+    var buf bytes.Buffer
+    
+    p := tea.NewProgram(model{},
+        tea.WithOutput(&buf),
+        tea.WithColorProfile(colorprofile.Ascii),
+    )
+    
+    if _, err := p.Run(); err != nil {
+        t.Fatal(err)
+    }
+    
+    // Output should not contain ANSI codes
+    output := buf.String()
+    if strings.Contains(output, "\x1b[") {
+        t.Error("expected no ANSI codes in Ascii mode")
+    }
+}
+
+func TestWithTrueColor(t *testing.T) {
+    p := tea.NewProgram(model{},
+        tea.WithColorProfile(colorprofile.TrueColor),
+    )
+    
+    // Test with full color support
+}
+```
+
+## Testing Message Flow
+
+```go
+func TestMessageSequence(t *testing.T) {
+    m := model{}
+    var receivedMsgs []tea.Msg
+    
+    // Simulate message sequence
+    messages := []tea.Msg{
+        tea.KeyPressMsg{Code: tea.KeyEnter},
+        statusMsg(200),
+        dataMsg{items: []string{"item"}},
+    }
+    
+    for _, msg := range messages {
+        var cmd tea.Cmd
+        m, cmd = m.Update(msg)
+        receivedMsgs = append(receivedMsgs, msg)
+        
+        // Execute command if returned
+        if cmd != nil {
+            resultMsg := cmd()
+            receivedMsgs = append(receivedMsgs, resultMsg)
+        }
+    }
+    
+    // Verify final state
+    if len(m.(model).items) != 1 {
+        t.Errorf("expected 1 item, got %d", len(m.(model).items))
+    }
+}
+```
+
+## Testing Init
+
+```go
+func TestInit(t *testing.T) {
+    m := model{}
+    cmd := m.Init()
+    
+    if cmd == nil {
+        t.Error("expected Init to return a command")
+    }
+    
+    // Execute the command
+    msg := cmd()
+    
+    // Verify the message type
+    if _, ok := msg.(tickMsg); !ok {
+        t.Errorf("expected tickMsg, got %T", msg)
+    }
+}
+```
+
+## Disable Input for Tests
+
+Disable input entirely:
+
+```go options.go:36-45
+func TestWithoutInput(t *testing.T) {
+    p := tea.NewProgram(model{},
+        tea.WithInput(nil),
+    )
+    
+    // No input will be processed
+}
+```
+
+## Integration Tests
+
+Test the full program flow:
+
+```go
+func TestFullProgram(t *testing.T) {
+    var buf bytes.Buffer
+    var in bytes.Buffer
+    
+    // Simulate user interaction
+    in.WriteString("down\n")  // Move cursor down
+    in.WriteString("down\n")  // Move cursor down again
+    in.WriteString(" ")       // Select item
+    in.WriteString("q")       // Quit
+    
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    
+    p := tea.NewProgram(initialModel(),
+        tea.WithContext(ctx),
+        tea.WithInput(&in),
+        tea.WithOutput(&buf),
+    )
+    
+    finalModel, err := p.Run()
+    if err != nil {
+        t.Fatal(err)
+    }
+    
+    m := finalModel.(model)
+    if m.cursor != 2 {
+        t.Errorf("expected cursor at position 2, got %d", m.cursor)
+    }
+    
+    if !m.selected[2] {
+        t.Error("expected item 2 to be selected")
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Test Update in Isolation">
+    Your Update function is pure - test it directly without running the full program:
+    
+    ```go
+    func TestUpdate(t *testing.T) {
+        m := model{}
+        m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+        // Assert expectations
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Mock External Dependencies">
+    Create interfaces for external services:
+    
+    ```go
+    type HTTPClient interface {
+        Get(url string) (*http.Response, error)
+    }
+    
+    // Use mock in tests
+    func TestWithMock(t *testing.T) {
+        mock := &mockHTTPClient{...}
+        // Test with mock
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use Context for Timeouts">
+    Always use context.WithTimeout in tests to prevent hanging:
+    
+    ```go tea_test.go:73-74
+    ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+    defer cancel()
+    ```
+  </Accordion>
+
+  <Accordion title="Test Commands Separately">
+    Commands are just functions - test them directly:
+    
+    ```go
+    func TestFetchData(t *testing.T) {
+        msg := fetchData()
+        // Verify message
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Use Table-Driven Tests">
+    Test multiple scenarios efficiently:
+    
+    ```go
+    tests := []struct{
+        name string
+        input tea.Msg
+        expected model
+    }{
+        // Test cases...
+    }
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // Test logic
+        })
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Test Utilities
+
+### Helper Functions
+
+```go
+// Helper to create test program
+func newTestProgram(t *testing.T, m tea.Model) (*tea.Program, *bytes.Buffer) {
+    var buf bytes.Buffer
+    var in bytes.Buffer
+    
+    p := tea.NewProgram(m,
+        tea.WithInput(&in),
+        tea.WithOutput(&buf),
+        tea.WithoutRenderer(),
+    )
+    
+    return p, &buf
+}
+
+// Helper to simulate key press
+func pressKey(t *testing.T, m tea.Model, key string) (tea.Model, tea.Cmd) {
+    msg := tea.KeyPressMsg{}
+    // Configure msg based on key string
+    return m.Update(msg)
+}
+```
+
+### Golden Files
+
+Compare output against golden files:
+
+```go
+func TestViewGolden(t *testing.T) {
+    m := model{items: []string{"Item 1", "Item 2"}}
+    view := m.View()
+    got := view.String()
+    
+    golden := filepath.Join("testdata", "view.golden")
+    
+    if *update {
+        os.WriteFile(golden, []byte(got), 0644)
+    }
+    
+    want, err := os.ReadFile(golden)
+    if err != nil {
+        t.Fatal(err)
+    }
+    
+    if got != string(want) {
+        t.Errorf("output mismatch\ngot:\n%s\nwant:\n%s", got, want)
+    }
+}
+```
+
+## Common Pitfalls
+
+<Warning>
+**Race Conditions**: Never access model from goroutines. Always send messages:
+
+```go
+// Bad: Race condition
+go func() {
+    m.data = fetch()  // Don't do this!
+}()
+
+// Good: Send message
+go func() {
+    p.Send(dataMsg{data: fetch()})
+}()
+```
+</Warning>
+
+<Warning>
+**Blocking Commands**: Commands that block forever will hang tests. Always use timeouts:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+p := tea.NewProgram(m, tea.WithContext(ctx))
+```
+</Warning>
+
+## Related
+
+- [Debugging](/guides/debugging) - Debug failing tests
+- [Async Operations](/guides/async-operations) - Test commands properly
+- [Input Handling](/guides/input-handling) - Mock keyboard input

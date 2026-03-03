@@ -1,0 +1,309 @@
+---
+title: Mouse Messages
+description: Handle mouse events in Bubble Tea applications
+---
+
+## Overview
+
+Mouse messages represent mouse interactions in your terminal application. Bubble Tea supports various mouse events including clicks, releases, wheel scrolling, and motion tracking.
+
+## Message Types
+
+### MouseClickMsg
+
+Represents a mouse button click event.
+
+```go
+type MouseClickMsg Mouse
+```
+
+<ParamField name="MouseClickMsg" type="Mouse">
+  A mouse click event containing position, button, and modifier information.
+</ParamField>
+
+**Methods:**
+
+- `String() string` - Returns a string representation of the mouse click
+- `Mouse() Mouse` - Returns the underlying Mouse struct
+
+### MouseReleaseMsg
+
+Represents a mouse button release event.
+
+```go
+type MouseReleaseMsg Mouse
+```
+
+<ParamField name="MouseReleaseMsg" type="Mouse">
+  A mouse button release event with the same structure as MouseClickMsg.
+</ParamField>
+
+**Methods:**
+
+- `String() string` - Returns a string representation of the mouse release
+- `Mouse() Mouse` - Returns the underlying Mouse struct
+
+### MouseWheelMsg
+
+Represents a mouse wheel scroll event.
+
+```go
+type MouseWheelMsg Mouse
+```
+
+<ParamField name="MouseWheelMsg" type="Mouse">
+  A mouse wheel event indicating scroll direction and position.
+</ParamField>
+
+**Methods:**
+
+- `String() string` - Returns a string representation of the wheel event
+- `Mouse() Mouse` - Returns the underlying Mouse struct
+
+### MouseMotionMsg
+
+Represents a mouse motion event.
+
+```go
+type MouseMotionMsg Mouse
+```
+
+<ParamField name="MouseMotionMsg" type="Mouse">
+  A mouse motion event tracking cursor movement.
+</ParamField>
+
+**Methods:**
+
+- `String() string` - Returns a string representation with "+motion" suffix
+- `Mouse() Mouse` - Returns the underlying Mouse struct
+
+### Mouse
+
+The underlying mouse event structure.
+
+<ResponseField name="X" type="int">
+  The X coordinate of the mouse event (zero-based, with 0 being the leftmost column).
+</ResponseField>
+
+<ResponseField name="Y" type="int">
+  The Y coordinate of the mouse event (zero-based, with 0 being the topmost row).
+</ResponseField>
+
+<ResponseField name="Button" type="MouseButton">
+  The mouse button involved in the event.
+</ResponseField>
+
+<ResponseField name="Mod" type="KeyMod">
+  Modifier keys held during the mouse event (e.g., ModCtrl, ModShift).
+</ResponseField>
+
+## Mouse Button Constants
+
+Mouse button codes are based on X11 mouse button conventions:
+
+```go
+const (
+    MouseNone       // No button (0)
+    MouseLeft       // Left button (1)
+    MouseMiddle     // Middle button/scroll wheel press (2)
+    MouseRight      // Right button (3)
+    MouseWheelUp    // Scroll wheel up (4)
+    MouseWheelDown  // Scroll wheel down (5)
+    MouseWheelLeft  // Scroll wheel left (6)
+    MouseWheelRight // Scroll wheel right (7)
+    MouseBackward   // Browser backward button (8)
+    MouseForward    // Browser forward button (9)
+    MouseButton10   // Additional button 10
+    MouseButton11   // Additional button 11
+)
+```
+
+## Usage Examples
+
+### Handling Mouse Clicks
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        switch msg.Button {
+        case tea.MouseLeft:
+            // Handle left click at position (msg.X, msg.Y)
+            m.handleClick(msg.X, msg.Y)
+        case tea.MouseRight:
+            // Handle right click
+            m.showContextMenu(msg.X, msg.Y)
+        }
+    }
+    return m, nil
+}
+```
+
+### Tracking Mouse Position
+
+```go
+type model struct {
+    mouseX int
+    mouseY int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseMotionMsg:
+        m.mouseX = msg.X
+        m.mouseY = msg.Y
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    return tea.NewView(fmt.Sprintf("Mouse at: %d, %d", m.mouseX, m.mouseY))
+}
+```
+
+### Handling Scroll Wheel
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseWheelMsg:
+        switch msg.Button {
+        case tea.MouseWheelUp:
+            m.scrollOffset--
+        case tea.MouseWheelDown:
+            m.scrollOffset++
+        case tea.MouseWheelLeft:
+            m.horizontalScroll--
+        case tea.MouseWheelRight:
+            m.horizontalScroll++
+        }
+    }
+    return m, nil
+}
+```
+
+### Mouse Click and Release
+
+```go
+type model struct {
+    isDragging bool
+    dragStart  struct{ x, y int }
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        if msg.Button == tea.MouseLeft {
+            m.isDragging = true
+            m.dragStart.x = msg.X
+            m.dragStart.y = msg.Y
+        }
+    
+    case tea.MouseReleaseMsg:
+        if msg.Button == tea.MouseLeft {
+            m.isDragging = false
+            // Handle end of drag
+        }
+    
+    case tea.MouseMotionMsg:
+        if m.isDragging {
+            // Handle drag motion
+            dx := msg.X - m.dragStart.x
+            dy := msg.Y - m.dragStart.y
+            m.handleDrag(dx, dy)
+        }
+    }
+    return m, nil
+}
+```
+
+### Checking Modifiers with Mouse Events
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        if msg.Button == tea.MouseLeft {
+            if msg.Mod == tea.ModCtrl {
+                // Ctrl+Click - multi-select
+                m.toggleSelection(msg.X, msg.Y)
+            } else if msg.Mod == tea.ModShift {
+                // Shift+Click - range select
+                m.rangeSelect(msg.X, msg.Y)
+            } else {
+                // Regular click
+                m.select(msg.X, msg.Y)
+            }
+        }
+    }
+    return m, nil
+}
+```
+
+### Handling All Mouse Events
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseMsg:
+        // Catch all mouse events using the MouseMsg interface
+        mouse := msg.Mouse()
+        fmt.Printf("Mouse event at (%d, %d) button: %d\n", 
+            mouse.X, mouse.Y, mouse.Button)
+    }
+    return m, nil
+}
+```
+
+### Clickable Regions
+
+```go
+type button struct {
+    x, y, width, height int
+    label string
+}
+
+func (b button) contains(x, y int) bool {
+    return x >= b.x && x < b.x+b.width &&
+           y >= b.y && y < b.y+b.height
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        if msg.Button == tea.MouseLeft {
+            for _, btn := range m.buttons {
+                if btn.contains(msg.X, msg.Y) {
+                    return m, m.handleButtonClick(btn)
+                }
+            }
+        }
+    }
+    return m, nil
+}
+```
+
+### Browser Navigation Buttons
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        switch msg.Button {
+        case tea.MouseBackward:
+            return m, m.goBack()
+        case tea.MouseForward:
+            return m, m.goForward()
+        }
+    }
+    return m, nil
+}
+```
+
+## Notes
+
+- Coordinates are zero-based, with (0,0) being the upper left corner of the terminal
+- Mouse tracking must be enabled in your program for these events to be delivered
+- Not all terminals support all mouse buttons (buttons 10 and 11 are rarely supported)
+- Mouse motion events can be frequent; consider rate limiting or debouncing if needed
+- The Button field in MouseMotionMsg indicates which button (if any) is pressed during motion

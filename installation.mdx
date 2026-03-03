@@ -1,0 +1,89 @@
+---
+title: Installation
+description: Install Bubble Tea and set up your development environment
+---
+
+## Prerequisites
+
+Bubble Tea requires Go 1.24.2 or later. You can check your Go version with:
+
+```bash
+go version
+```
+
+If you need to install or upgrade Go, visit [go.dev/doc/install](https://go.dev/doc/install).
+
+## Install Bubble Tea
+
+Add Bubble Tea to your project using `go get`:
+
+```bash
+go get charm.land/bubbletea/v2
+```
+
+<Note>
+Make sure to use `charm.land/bubbletea/v2` (with v2) to get the latest version.
+</Note>
+
+## Initialize your module
+
+If you're starting a new project, first initialize a Go module:
+
+```bash
+mkdir my-bubbletea-app
+cd my-bubbletea-app
+go mod init github.com/yourusername/my-bubbletea-app
+go get charm.land/bubbletea/v2
+```
+
+## Verify installation
+
+Create a simple test file to verify your installation:
+
+```go main.go
+package main
+
+import (
+	"fmt"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+type model struct{}
+
+func (m model) Init() tea.Cmd { return nil }
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return m, tea.Quit }
+func (m model) View() tea.View { return tea.NewView("Hello, Bubble Tea!") }
+
+func main() {
+	p := tea.NewProgram(model{})
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Error: %v", err)
+	}
+}
+```
+
+<Steps>
+  <Step title="Run your program">
+    Execute the program to see "Hello, Bubble Tea!" displayed:
+    
+    ```bash
+    go run main.go
+    ```
+  </Step>
+  
+  <Step title="Verify the output">
+    You should see "Hello, Bubble Tea!" printed to your terminal, and the program should exit immediately.
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Build your first app" icon="rocket" href="/quickstart">
+    Follow the quickstart guide to build an interactive shopping list
+  </Card>
+  <Card title="Learn core concepts" icon="book" href="/concepts/architecture">
+    Understand models, messages, and commands
+  </Card>
+</CardGroup>

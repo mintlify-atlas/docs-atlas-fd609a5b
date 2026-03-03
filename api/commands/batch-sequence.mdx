@@ -1,0 +1,127 @@
+---
+title: Batch & Sequence
+description: Execute multiple commands concurrently or sequentially
+---
+
+## Batch
+
+Performs a bunch of commands concurrently with no ordering guarantees about the results. Use `Batch` to return several commands.
+
+```go
+func Batch(cmds ...Cmd) Cmd
+```
+
+<ParamField path="cmds" type="...Cmd">
+  Variable number of commands to execute concurrently. Nil commands are automatically filtered out.
+</ParamField>
+
+### Returns
+
+Returns a `Cmd` that, when executed, runs all provided commands concurrently.
+
+### Example
+
+```go
+func (m model) Init() (tea.Model, tea.Cmd) {
+    return m, tea.Batch(someCommand, someOtherCommand)
+}
+
+// Execute multiple commands at once
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case StartMsg:
+        return m, tea.Batch(
+            fetchUserData(),
+            loadSettings(),
+            checkForUpdates(),
+        )
+    }
+    return m, nil
+}
+```
+
+## Sequence
+
+Runs the given commands one at a time, in order. Contrast this with `Batch`, which runs commands concurrently.
+
+```go
+func Sequence(cmds ...Cmd) Cmd
+```
+
+<ParamField path="cmds" type="...Cmd">
+  Variable number of commands to execute sequentially. Nil commands are automatically filtered out.
+</ParamField>
+
+### Returns
+
+Returns a `Cmd` that, when executed, runs all provided commands in order.
+
+### Example
+
+```go
+// Execute commands in a specific order
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case InitMsg:
+        return m, tea.Sequence(
+            authenticate(),
+            loadUserProfile(),
+            fetchDashboard(),
+        )
+    }
+    return m, nil
+}
+```
+
+## BatchMsg
+
+A message type used to perform a bunch of commands concurrently with no ordering guarantees. You can send a `BatchMsg` with `Batch`.
+
+```go
+type BatchMsg []Cmd
+```
+
+### Example
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.BatchMsg:
+        // Handle batch message if needed
+        return m, tea.Batch(msg...)
+    }
+    return m, nil
+}
+```
+
+## Batch vs Sequence
+
+### When to use Batch
+
+- Commands are independent and can run in any order
+- You want maximum performance through parallel execution
+- Order of message delivery doesn't matter
+
+```go
+// These operations are independent
+tea.Batch(
+    fetchWeather(),
+    fetchNews(),
+    fetchStocks(),
+)
+```
+
+### When to use Sequence
+
+- Commands have dependencies on previous results
+- Order of execution matters
+- You need predictable, sequential behavior
+
+```go
+// These operations must happen in order
+tea.Sequence(
+    connectToDatabase(),
+    runMigrations(),
+    loadInitialData(),
+)
+```

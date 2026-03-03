@@ -1,0 +1,493 @@
+---
+title: View
+description: The View type represents the visual output and terminal configuration for a Bubble Tea program.
+---
+
+## Overview
+
+The `View` type represents a terminal view that can be composed of styled content, cursor configuration, terminal colors, and various terminal properties. It's returned by the `Model.View()` method and defines what gets rendered to the terminal.
+
+## Type Definition
+
+```go
+type View struct {
+    Content                   string
+    OnMouse                   func(msg MouseMsg) Cmd
+    Cursor                    *Cursor
+    BackgroundColor           color.Color
+    ForegroundColor           color.Color
+    WindowTitle               string
+    ProgressBar               *ProgressBar
+    AltScreen                 bool
+    ReportFocus               bool
+    DisableBracketedPasteMode bool
+    MouseMode                 MouseMode
+    KeyboardEnhancements      KeyboardEnhancements
+}
+```
+
+## Creating a View
+
+### NewView
+
+Creates a new View with the given styled string content.
+
+```go
+func NewView(s string) View
+```
+
+<ParamField path="s" type="string" required>
+  A styled string representing text with styles and hyperlinks encoded as ANSI escape codes.
+</ParamField>
+
+<ResponseField name="View" type="View">
+  A new View instance with the content set.
+</ResponseField>
+
+**Example:**
+
+```go
+v := tea.NewView("Hello, World!")
+```
+
+**Example with styling:**
+
+```go
+import "github.com/charmbracelet/lipgloss"
+
+style := lipgloss.NewStyle().
+    Bold(true).
+    Foreground(lipgloss.Color("#FF00FF"))
+
+content := style.Render("Styled Text")
+v := tea.NewView(content)
+```
+
+## View Fields
+
+### Content
+
+The screen content of the view. Holds styled strings that will be rendered to the terminal.
+
+```go
+Content string
+```
+
+A styled string represents text with styles and hyperlinks encoded as ANSI escape codes.
+
+**Example:**
+
+```go
+v := tea.NewView("Line 1\nLine 2\nLine 3")
+```
+
+### OnMouse
+
+Optional mouse message handler for intercepting mouse messages based on view content from the last render.
+
+```go
+OnMouse func(msg MouseMsg) Cmd
+```
+
+**Purpose:**
+- Implement view-specific mouse behavior
+- Handle clicks on specific UI elements
+- Maintain unidirectional data flow
+
+**Example:**
+
+```go
+content := "Hello, World!"
+v := tea.NewView(content)
+v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
+    m := msg.Mouse()
+    // Check if mouse is over "World!"
+    start := strings.Index(content, "World!")
+    end := start + len("World!")
+    if m.Y == 0 && m.X >= start && m.X < end {
+        return func() tea.Msg {
+            return ClickedOnWorldMsg{}
+        }
+    }
+    return nil
+}
+```
+
+### Cursor
+
+Represents the cursor position, style, and visibility. When not nil, the cursor will be shown at the specified position.
+
+```go
+Cursor *Cursor
+```
+
+**Example:**
+
+```go
+v := tea.NewView("Enter text: ")
+v.Cursor = tea.NewCursor(13, 0) // Position at column 13, row 0
+v.Cursor.Shape = tea.CursorBar
+v.Cursor.Blink = true
+```
+
+**See also:** [Cursor type](#cursor-type)
+
+### BackgroundColor
+
+Sets the terminal background color. Use nil to reset to the terminal's default.
+
+```go
+BackgroundColor color.Color
+```
+
+**Example:**
+
+```go
+import "image/color"
+
+v := tea.NewView("Hello!")
+v.BackgroundColor = color.RGBA{R: 30, G: 30, B: 30, A: 255}
+```
+
+### ForegroundColor
+
+Sets the terminal foreground color. Use nil to reset to the terminal's default.
+
+```go
+ForegroundColor color.Color
+```
+
+**Example:**
+
+```go
+import "image/color"
+
+v := tea.NewView("Hello!")
+v.ForegroundColor = color.RGBA{R: 255, G: 255, B: 255, A: 255}
+```
+
+### WindowTitle
+
+Sets the terminal window title. Support depends on the terminal emulator.
+
+```go
+WindowTitle string
+```
+
+**Example:**
+
+```go
+v := tea.NewView("My Application")
+v.WindowTitle = "Todo List - 5 items"
+```
+
+### ProgressBar
+
+Shows a progress bar in the terminal's progress bar section when not nil. Support depends on the terminal.
+
+```go
+ProgressBar *ProgressBar
+```
+
+**Example:**
+
+```go
+v := tea.NewView("Downloading...")
+v.ProgressBar = tea.NewProgressBar(tea.ProgressBarDefault, 75)
+```
+
+**See also:** [ProgressBar type](#progressbar-type)
+
+### AltScreen
+
+Puts the program in the alternate screen buffer (full window mode). The altscreen will be automatically exited when the program quits.
+
+```go
+AltScreen bool
+```
+
+**Example:**
+
+```go
+func (m model) View() tea.View {
+    v := tea.NewView("Fullscreen mode!")
+    v.AltScreen = true
+    return v
+}
+```
+
+### ReportFocus
+
+Enables reporting when the terminal gains and loses focus. When enabled, `FocusMsg` and `BlurMsg` messages will be sent to your Update method.
+
+```go
+ReportFocus bool
+```
+
+**Example:**
+
+```go
+v := tea.NewView("Focus-aware app")
+v.ReportFocus = true
+```
+
+<Note>
+  Most terminals and multiplexers support focus reporting, but some do not. Tmux needs to be configured to report focus events.
+</Note>
+
+### DisableBracketedPasteMode
+
+Disables bracketed paste mode for this view.
+
+```go
+DisableBracketedPasteMode bool
+```
+
+**Example:**
+
+```go
+v := tea.NewView("No bracketed paste")
+v.DisableBracketedPasteMode = true
+```
+
+### MouseMode
+
+Sets the mouse mode for this view.
+
+```go
+MouseMode MouseMode
+```
+
+**Available modes:**
+
+<ParamField path="MouseModeNone" type="MouseMode">
+  Disables mouse events (default).
+</ParamField>
+
+<ParamField path="MouseModeCellMotion" type="MouseMode">
+  Enables mouse click, release, and wheel events. Mouse movement events are captured only when a button is pressed (drag events).
+</ParamField>
+
+<ParamField path="MouseModeAllMotion" type="MouseMode">
+  Enables all mouse events, including movement events even when no buttons are pressed.
+</ParamField>
+
+**Example:**
+
+```go
+v := tea.NewView("Click me!")
+v.MouseMode = tea.MouseModeCellMotion
+```
+
+### KeyboardEnhancements
+
+Describes what keyboard enhancement features to request from the terminal.
+
+```go
+KeyboardEnhancements KeyboardEnhancements
+```
+
+**Example:**
+
+```go
+v := tea.NewView("Press some keys!")
+v.KeyboardEnhancements.ReportEventTypes = true // Request key repeat/release events
+```
+
+**See also:** [KeyboardEnhancements type](#keyboardenhancements-type)
+
+## Helper Methods
+
+### SetContent
+
+Sets the content of a View with a styled string.
+
+```go
+func (v *View) SetContent(s string)
+```
+
+<ParamField path="s" type="string" required>
+  A styled string representing text with styles and hyperlinks encoded as ANSI escape codes.
+</ParamField>
+
+**Example:**
+
+```go
+var v tea.View
+v.SetContent("Hello, World!")
+```
+
+## Related Types
+
+### Cursor Type
+
+Represents a cursor on the terminal screen.
+
+```go
+type Cursor struct {
+    Position Position // X, Y coordinates
+    Color    color.Color
+    Shape    CursorShape
+    Blink    bool
+}
+```
+
+**Creating a cursor:**
+
+```go
+func NewCursor(x, y int) *Cursor
+```
+
+**Cursor shapes:**
+
+- `CursorBlock`: Block cursor (default)
+- `CursorUnderline`: Underline cursor
+- `CursorBar`: Bar/vertical line cursor
+
+**Example:**
+
+```go
+cursor := tea.NewCursor(10, 5)
+cursor.Shape = tea.CursorBar
+cursor.Blink = false
+cursor.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+```
+
+### ProgressBar Type
+
+Represents the terminal progress bar (support varies by terminal).
+
+```go
+type ProgressBar struct {
+    State ProgressBarState
+    Value int // 0-100
+}
+```
+
+**Creating a progress bar:**
+
+```go
+func NewProgressBar(state ProgressBarState, value int) *ProgressBar
+```
+
+**Progress bar states:**
+
+- `ProgressBarNone`: No progress bar
+- `ProgressBarDefault`: Default state
+- `ProgressBarError`: Error state
+- `ProgressBarIndeterminate`: Indeterminate/spinner state
+- `ProgressBarWarning`: Warning state
+
+**Example:**
+
+```go
+pb := tea.NewProgressBar(tea.ProgressBarDefault, 50)
+v := tea.NewView("Loading...")
+v.ProgressBar = pb
+```
+
+### KeyboardEnhancements Type
+
+Defines keyboard enhancement features to request from the terminal.
+
+```go
+type KeyboardEnhancements struct {
+    ReportEventTypes bool // Request key repeat and release events
+}
+```
+
+**Example:**
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyboardEnhancementsMsg:
+        // We have basic key disambiguation support
+        if msg.ReportEventTypes {
+            // We can handle key repeat and release events
+        }
+    case tea.KeyReleaseMsg:
+        // A key was released!
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    v := tea.NewView("Press some keys!")
+    v.KeyboardEnhancements.ReportEventTypes = true
+    return v
+}
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "fmt"
+    "image/color"
+    
+    tea "charm.land/bubbletea/v2"
+    "github.com/charmbracelet/lipgloss"
+)
+
+type model struct {
+    cursor int
+    items  []string
+}
+
+func (m model) Init() tea.Cmd {
+    return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "q":
+            return m, tea.Quit
+        case "up":
+            if m.cursor > 0 {
+                m.cursor--
+            }
+        case "down":
+            if m.cursor < len(m.items)-1 {
+                m.cursor++
+            }
+        }
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    // Build content
+    s := "My Todo List\n\n"
+    for i, item := range m.items {
+        cursor := " "
+        if i == m.cursor {
+            cursor = ">"
+        }
+        s += fmt.Sprintf("%s %s\n", cursor, item)
+    }
+    s += "\nPress q to quit"
+    
+    // Configure view
+    v := tea.NewView(s)
+    v.AltScreen = true
+    v.MouseMode = tea.MouseModeCellMotion
+    v.WindowTitle = fmt.Sprintf("Todo List (%d items)", len(m.items))
+    v.ReportFocus = true
+    
+    return v
+}
+
+func main() {
+    m := model{
+        items: []string{"Buy milk", "Walk the dog", "Write code"},
+    }
+    
+    p := tea.NewProgram(m)
+    p.Run()
+}
+```

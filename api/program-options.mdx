@@ -1,0 +1,400 @@
+---
+title: "Program Options"
+description: "Configure and customize your Bubble Tea program with ProgramOption functions"
+---
+
+Program options allow you to customize the behavior of your Bubble Tea application when initializing a Program. You can pass multiple options to `NewProgram` to configure input/output, context, rendering, and more.
+
+## Usage
+
+```go
+p := tea.NewProgram(
+    model,
+    tea.WithInput(os.Stdin),
+    tea.WithOutput(os.Stdout),
+    tea.WithAltScreen(),
+)
+```
+
+## ProgramOption
+
+<ParamField path="ProgramOption" type="func(*Program)">
+  A function type used to set options when initializing a Program. Programs can accept a variable number of options.
+
+  **Example:**
+  ```go
+  p := tea.NewProgram(model, tea.WithInput(someInput), tea.WithOutput(someOutput))
+  ```
+</ParamField>
+
+## Context Options
+
+### WithContext
+
+<ParamField path="WithContext" type="func(ctx context.Context) ProgramOption">
+  Specifies a context in which to run the Program. This is useful if you want to cancel the execution from outside. When a Program gets cancelled it will exit with an error `ErrProgramKilled`.
+
+  **Parameters:**
+  - `ctx` - The context to use for program execution
+
+  **Example:**
+  ```go
+  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+  defer cancel()
+
+  p := tea.NewProgram(model, tea.WithContext(ctx))
+  if _, err := p.Run(); err != nil {
+      if errors.Is(err, tea.ErrProgramKilled) {
+          fmt.Println("Program was cancelled")
+      }
+  }
+  ```
+
+  **When to use:**
+  - You need to cancel the program from external code
+  - You want to implement timeouts
+  - You need to coordinate shutdown with other goroutines
+</ParamField>
+
+## Input/Output Options
+
+### WithOutput
+
+<ParamField path="WithOutput" type="func(output io.Writer) ProgramOption">
+  Sets the output which, by default, is stdout. In most cases you won't need to use this.
+
+  **Parameters:**
+  - `output` - The io.Writer to use for program output
+
+  **Example:**
+  ```go
+  var buf bytes.Buffer
+  p := tea.NewProgram(model, tea.WithOutput(&buf))
+  p.Run()
+  
+  // Output is now in buf
+  fmt.Println(buf.String())
+  ```
+
+  **When to use:**
+  - Testing: Capture output to a buffer for assertions
+  - Logging: Redirect output to a file or custom writer
+  - Multiple outputs: Use io.MultiWriter to send output to multiple destinations
+</ParamField>
+
+### WithInput
+
+<ParamField path="WithInput" type="func(input io.Reader) ProgramOption">
+  Sets the input which, by default, is stdin. In most cases you won't need to use this. To disable input entirely, pass nil.
+
+  **Parameters:**
+  - `input` - The io.Reader to use for program input, or nil to disable input
+
+  **Example:**
+  ```go
+  // Disable input
+  p := tea.NewProgram(model, tea.WithInput(nil))
+
+  // Use custom input source
+  input := strings.NewReader("test input\n")
+  p := tea.NewProgram(model, tea.WithInput(input))
+  ```
+
+  **When to use:**
+  - Testing: Provide predetermined input
+  - Non-interactive mode: Disable input when running as a daemon
+  - Custom input source: Read from a file or network connection
+</ParamField>
+
+## Environment Options
+
+### WithEnvironment
+
+<ParamField path="WithEnvironment" type="func(env []string) ProgramOption">
+  Sets the environment variables that the program will use. This is useful when the program is running in a remote session (e.g. SSH) and you want to pass the environment variables from the remote session to the program.
+
+  **Parameters:**
+  - `env` - A slice of strings in the format "KEY=value"
+
+  **Example:**
+  ```go
+  // SSH session example
+  var sess ssh.Session // from github.com/charmbracelet/ssh
+  pty, _, _ := sess.Pty()
+  environ := append(sess.Environ(), "TERM="+pty.Term)
+  p := tea.NewProgram(model, tea.WithEnvironment(environ))
+  ```
+
+  **When to use:**
+  - Running in SSH sessions or remote environments
+  - Testing with specific environment variables
+  - Overriding terminal capabilities or color settings
+</ParamField>
+
+## Signal Handling Options
+
+### WithoutSignalHandler
+
+<ParamField path="WithoutSignalHandler" type="func() ProgramOption">
+  Disables the signal handler that Bubble Tea sets up for Programs. This is useful if you want to handle signals yourself.
+
+  **Example:**
+  ```go
+  sigChan := make(chan os.Signal, 1)
+  signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+  p := tea.NewProgram(model, tea.WithoutSignalHandler())
+
+  go func() {
+      <-sigChan
+      // Custom signal handling logic
+      p.Quit()
+  }()
+
+  p.Run()
+  ```
+
+  **When to use:**
+  - You need custom signal handling logic
+  - Your application has its own signal management
+  - You're embedding Bubble Tea in a larger application with existing signal handlers
+</ParamField>
+
+### WithoutSignals
+
+<ParamField path="WithoutSignals" type="func() ProgramOption">
+  Ignores OS signals entirely. This is mainly useful for testing.
+
+  **Example:**
+  ```go
+  p := tea.NewProgram(model, tea.WithoutSignals())
+  ```
+
+  **When to use:**
+  - Testing: Prevent signals from interfering with tests
+  - Controlled environments: Running in containers or sandboxes where signals should be ignored
+</ParamField>
+
+## Error Handling Options
+
+### WithoutCatchPanics
+
+<ParamField path="WithoutCatchPanics" type="func() ProgramOption">
+  Disables the panic catching that Bubble Tea does by default. If panic catching is disabled, the terminal will be in a fairly unusable state after a panic because Bubble Tea will not perform its usual cleanup on exit.
+
+  **Example:**
+  ```go
+  p := tea.NewProgram(model, tea.WithoutCatchPanics())
+  ```
+
+  **When to use:**
+  - Debugging: See the full stack trace without Bubble Tea's panic handling
+  - Development: Let panics crash the program to identify bugs early
+  - Custom panic recovery: You have your own panic handling mechanism
+
+  **Warning:** Only use this during development. In production, the default panic catching ensures the terminal is properly restored.
+</ParamField>
+
+## Rendering Options
+
+### WithoutRenderer
+
+<ParamField path="WithoutRenderer" type="func() ProgramOption">
+  Disables the renderer. When this is set, output and log statements will be plainly sent to stdout (or another output if one is set) without any rendering and redrawing logic. In other words, printing and logging will behave the same way it would in a non-TUI commandline tool.
+
+  **Example:**
+  ```go
+  var renderer bool
+  if !term.IsTerminal(os.Stdout.Fd()) {
+      // Running in non-TTY mode (pipe, redirect, etc.)
+      p = tea.NewProgram(model, tea.WithoutRenderer())
+  } else {
+      p = tea.NewProgram(model)
+  }
+  ```
+
+  **When to use:**
+  - Non-interactive mode: Provide a daemon or CLI mode for your application
+  - Piped output: Detect when output is redirected and disable TUI
+  - Logging: Use Bubble Tea's architecture without the full-screen interface
+  - Continuous output: Stream logs or progress without redraws
+</ParamField>
+
+### WithFPS
+
+<ParamField path="WithFPS" type="func(fps int) ProgramOption">
+  Sets a custom maximum FPS at which the renderer should run. If less than 1, the default value of 60 will be used. If over 120, the FPS will be capped at 120.
+
+  **Parameters:**
+  - `fps` - The target frames per second (1-120)
+
+  **Example:**
+  ```go
+  // Lower FPS for less resource usage
+  p := tea.NewProgram(model, tea.WithFPS(30))
+
+  // Higher FPS for smooth animations
+  p := tea.NewProgram(model, tea.WithFPS(120))
+  ```
+
+  **When to use:**
+  - Performance optimization: Lower FPS to reduce CPU usage
+  - Smooth animations: Increase FPS for smoother visual effects
+  - Resource-constrained environments: Reduce FPS when CPU is limited
+</ParamField>
+
+### WithColorProfile
+
+<ParamField path="WithColorProfile" type="func(profile colorprofile.Profile) ProgramOption">
+  Sets the color profile that the program will use. This is useful when you want to force a specific color profile. By default, Bubble Tea will try to detect the terminal's color profile from environment variables and terminfo capabilities.
+
+  **Parameters:**
+  - `profile` - A colorprofile.Profile (TrueColor, ANSI256, ANSI, or Ascii)
+
+  **Example:**
+  ```go
+  import "github.com/charmbracelet/colorprofile"
+
+  // Force true color support
+  p := tea.NewProgram(model, tea.WithColorProfile(colorprofile.TrueColor))
+
+  // Force basic 16-color ANSI
+  p := tea.NewProgram(model, tea.WithColorProfile(colorprofile.ANSI))
+
+  // Disable all colors
+  p := tea.NewProgram(model, tea.WithColorProfile(colorprofile.Ascii))
+  ```
+
+  **When to use:**
+  - Testing: Ensure consistent output across different environments
+  - Legacy terminals: Force compatibility with older terminal emulators
+  - User preference: Let users choose their color mode
+  - SSH/remote sessions: Override incorrect terminal detection
+
+  **Note:** Use `tea.WithEnvironment` to set custom environment variables that may affect color detection.
+</ParamField>
+
+### WithWindowSize
+
+<ParamField path="WithWindowSize" type="func(width, height int) ProgramOption">
+  Sets the initial size of the terminal window. This is useful when you need to set the initial size of the terminal window, for example during testing or when you want to run your program in a non-interactive environment.
+
+  **Parameters:**
+  - `width` - The initial window width in columns
+  - `height` - The initial window height in rows
+
+  **Example:**
+  ```go
+  // Set initial window size for testing
+  p := tea.NewProgram(model, tea.WithWindowSize(80, 24))
+  ```
+
+  **When to use:**
+  - Testing: Ensure consistent dimensions for snapshot tests
+  - Non-TTY environments: Provide dimensions when terminal size detection fails
+  - Screenshots/demos: Set specific dimensions for documentation
+</ParamField>
+
+## Event Filtering Options
+
+### WithFilter
+
+<ParamField path="WithFilter" type="func(filter func(Model, Msg) Msg) ProgramOption">
+  Supplies an event filter that will be invoked before Bubble Tea processes a tea.Msg. The event filter can return any tea.Msg which will then get handled by Bubble Tea instead of the original event. If the event filter returns nil, the event will be ignored and Bubble Tea will not process it.
+
+  **Parameters:**
+  - `filter` - A function that takes a Model and Msg, and returns a Msg (or nil to ignore)
+
+  **Example:**
+  ```go
+  // Prevent quitting if there are unsaved changes
+  func filter(m tea.Model, msg tea.Msg) tea.Msg {
+      if _, ok := msg.(tea.QuitMsg); !ok {
+          return msg
+      }
+
+      model := m.(myModel)
+      if model.hasChanges {
+          return nil // Ignore quit message
+      }
+
+      return msg
+  }
+
+  p := tea.NewProgram(model, tea.WithFilter(filter))
+  ```
+
+  **Example - Transform messages:**
+  ```go
+  // Convert certain key presses
+  func filter(m tea.Model, msg tea.Msg) tea.Msg {
+      if keyMsg, ok := msg.(tea.KeyMsg); ok {
+          if keyMsg.String() == "ctrl+c" {
+              // Convert Ctrl+C to a custom message
+              return SaveAndQuitMsg{}
+          }
+      }
+      return msg
+  }
+  ```
+
+  **When to use:**
+  - Preventing accidental exits with unsaved data
+  - Global event transformation or routing
+  - Implementing confirmation dialogs for dangerous actions
+  - Debugging: Log all messages before they're processed
+</ParamField>
+
+## Common Combinations
+
+### Testing Configuration
+
+```go
+p := tea.NewProgram(
+    model,
+    tea.WithInput(strings.NewReader("test input\n")),
+    tea.WithOutput(&buf),
+    tea.WithWindowSize(80, 24),
+    tea.WithoutSignals(),
+)
+```
+
+### SSH/Remote Session
+
+```go
+var sess ssh.Session
+pty, _, _ := sess.Pty()
+environ := append(sess.Environ(), "TERM="+pty.Term)
+
+p := tea.NewProgram(
+    model,
+    tea.WithInput(sess),
+    tea.WithOutput(sess),
+    tea.WithEnvironment(environ),
+)
+```
+
+### Daemon/Non-TUI Mode
+
+```go
+if !term.IsTerminal(os.Stdout.Fd()) {
+    p = tea.NewProgram(
+        model,
+        tea.WithoutRenderer(),
+        tea.WithInput(nil),
+    )
+}
+```
+
+### Production with Timeout
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+defer cancel()
+
+p := tea.NewProgram(
+    model,
+    tea.WithContext(ctx),
+    tea.WithFilter(preventAccidentalQuit),
+)
+```

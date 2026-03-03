@@ -1,0 +1,408 @@
+---
+title: Styling
+description: Style your Bubble Tea applications with colors, formatting, and layout
+---
+
+## Overview
+
+Bubble Tea supports terminal styling through ANSI codes and integrates seamlessly with [Lip Gloss](https://github.com/charmbracelet/lipgloss), Charm's styling library for terminal applications. The framework automatically handles color profile detection and downsampling.
+
+## Lip Gloss Integration
+
+The recommended way to style Bubble Tea applications is with Lip Gloss:
+
+```go examples/spinner/main.go:12-28
+import (
+    "charm.land/bubbles/v2/spinner"
+    tea "charm.land/bubbletea/v2"
+    "charm.land/lipgloss/v2"
+)
+
+func initialModel() model {
+    s := spinner.New()
+    s.Spinner = spinner.Dot
+    s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+    return model{spinner: s}
+}
+```
+
+### Basic Styling
+
+```go
+import "charm.land/lipgloss/v2"
+
+var (
+    titleStyle = lipgloss.NewStyle().
+        Bold(true).
+        Foreground(lipgloss.Color("#FAFAFA")).
+        Background(lipgloss.Color("#7D56F4")).
+        Padding(0, 1)
+
+    errorStyle = lipgloss.NewStyle().
+        Foreground(lipgloss.Color("#FF0000")).
+        Bold(true)
+
+    subtleStyle = lipgloss.NewStyle().
+        Foreground(lipgloss.Color("#888888"))
+)
+
+func (m model) View() tea.View {
+    title := titleStyle.Render("My Application")
+    subtitle := subtleStyle.Render("Press q to quit")
+    
+    content := title + "\n" + subtitle
+    return tea.NewView(content)
+}
+```
+
+## Color Profiles
+
+Bubble Tea automatically detects the terminal's color capabilities:
+
+- **TrueColor** (24-bit) - 16 million colors
+- **ANSI256** - 256 colors  
+- **ANSI** - 16 colors
+- **Ascii** - No colors
+
+### Automatic Detection
+
+Color profiles are detected from environment variables and terminal capabilities:
+
+```go
+// Bubble Tea automatically detects color support
+p := tea.NewProgram(model{})
+if _, err := p.Run(); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Manual Color Profile
+
+Override the detected color profile:
+
+```go examples/colorprofile/main.go:46-52
+import "github.com/charmbracelet/colorprofile"
+
+func main() {
+    p := tea.NewProgram(model{}, tea.WithColorProfile(colorprofile.TrueColor))
+    if _, err := p.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Color Profile Messages
+
+React to color profile changes:
+
+```go examples/colorprofile/main.go:28-35
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.ColorProfileMsg:
+        return m, tea.Println("Color profile manually set to ", msg)
+    }
+    return m, nil
+}
+```
+
+## ANSI Styling
+
+For direct ANSI control, use the `ansi` package:
+
+```go examples/colorprofile/main.go:39-44
+import "github.com/charmbracelet/x/ansi"
+
+func (m model) View() tea.View {
+    styled := ansi.Style{}.ForegroundColor(myFancyColor).Styled("Howdy!")
+    return tea.NewView(styled)
+}
+```
+
+### ANSI Color Codes
+
+```go
+import "github.com/charmbracelet/x/ansi"
+
+// Basic colors
+red := ansi.Red
+green := ansi.Green
+blue := ansi.Blue
+
+// 256 colors
+color := ansi.ExtendedColor(196)  // Bright red
+
+// True color
+import "github.com/lucasb-eyer/go-colorful"
+color, _ := colorful.Hex("#6b50ff")
+```
+
+## Dynamic Background Colors
+
+Query the terminal's background color to adapt your styles:
+
+```go color.go:48-77
+type BackgroundColorMsg struct{ color.Color }
+
+func (m Model) Init() tea.Cmd {
+    return tea.RequestBackgroundColor()
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.BackgroundColorMsg:
+        m.styles = newStyles(msg.IsDark())
+    }
+    return m, nil
+}
+
+func newStyles(isDark bool) Styles {
+    if isDark {
+        return Styles{
+            Text: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")),
+        }
+    }
+    return Styles{
+        Text: lipgloss.NewStyle().Foreground(lipgloss.Color("#000000")),
+    }
+}
+```
+
+### Foreground and Cursor Colors
+
+Query other terminal colors:
+
+```go color.go:17-31
+// Request foreground color
+func (m model) Init() tea.Cmd {
+    return tea.RequestForegroundColor()
+}
+
+// Request cursor color  
+func (m model) Init() tea.Cmd {
+    return tea.RequestCursorColor()
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.ForegroundColorMsg:
+        fmt.Println("Foreground:", msg.String())
+    case tea.CursorColorMsg:
+        fmt.Println("Cursor:", msg.String())
+    }
+    return m, nil
+}
+```
+
+## Lip Gloss Layouts
+
+Lip Gloss provides powerful layout primitives:
+
+### Horizontal Layout
+
+```go
+import "charm.land/lipgloss/v2"
+
+func (m model) View() tea.View {
+    left := lipgloss.NewStyle().
+        Width(20).
+        Render("Left panel")
+    
+    right := lipgloss.NewStyle().
+        Width(20).
+        Render("Right panel")
+    
+    content := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+    return tea.NewView(content)
+}
+```
+
+### Vertical Layout
+
+```go
+header := headerStyle.Render("Header")
+body := bodyStyle.Render(m.content)
+footer := footerStyle.Render("Footer")
+
+content := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+return tea.NewView(content)
+```
+
+### Borders and Padding
+
+```go
+boxStyle := lipgloss.NewStyle().
+    Border(lipgloss.RoundedBorder()).
+    BorderForeground(lipgloss.Color("#874BFD")).
+    Padding(1, 2).
+    Width(50)
+
+content := boxStyle.Render("Content inside a box")
+```
+
+## Text Formatting
+
+### Basic Formatting
+
+```go
+boldStyle := lipgloss.NewStyle().Bold(true)
+italicStyle := lipgloss.NewStyle().Italic(true)
+underlineStyle := lipgloss.NewStyle().Underline(true)
+strikethroughStyle := lipgloss.NewStyle().Strikethrough(true)
+blinkStyle := lipgloss.NewStyle().Blink(true)
+
+text := boldStyle.Render("Bold") + " " +
+        italicStyle.Render("Italic") + " " +
+        underlineStyle.Render("Underline")
+```
+
+### Alignment
+
+```go
+centeredStyle := lipgloss.NewStyle().
+    Width(50).
+    Align(lipgloss.Center)
+
+leftStyle := lipgloss.NewStyle().
+    Width(50).
+    Align(lipgloss.Left)
+
+rightStyle := lipgloss.NewStyle().
+    Width(50).
+    Align(lipgloss.Right)
+```
+
+## Adaptive Colors
+
+Lip Gloss supports adaptive colors that change based on background:
+
+```go
+adaptiveStyle := lipgloss.NewStyle().
+    Foreground(lipgloss.AdaptiveColor{
+        Light: "#000000",
+        Dark:  "#FFFFFF",
+    })
+```
+
+## Color Rendering
+
+Bubble Tea uses `colorprofile.Writer` to automatically downsample colors:
+
+```go options.go:148-157
+import "github.com/charmbracelet/colorprofile"
+
+// Set custom color profile
+func WithColorProfile(profile colorprofile.Profile) ProgramOption {
+    return func(p *Program) {
+        p.profile = &profile
+    }
+}
+```
+
+This ensures your 24-bit colors work correctly on terminals with limited color support.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Lip Gloss for Consistency">
+    Lip Gloss provides a declarative API that's easier to maintain than raw ANSI codes:
+    
+    ```go
+    // Good: Declarative and maintainable
+    style := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF0000"))
+    
+    // Avoid: Hard to read and maintain
+    text := "\x1b[1;31mRed Bold Text\x1b[0m"
+    ```
+  </Accordion>
+
+  <Accordion title="Define Styles Once">
+    Create style variables at package level:
+    
+    ```go
+    var (
+        titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4"))
+        errorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Use Adaptive Colors">
+    Support both light and dark terminals:
+    
+    ```go
+    style := lipgloss.NewStyle().
+        Foreground(lipgloss.AdaptiveColor{
+            Light: "#000000",
+            Dark:  "#FFFFFF",
+        })
+    ```
+  </Accordion>
+
+  <Accordion title="Let Bubble Tea Handle Color Profiles">
+    Don't force TrueColor unless necessary:
+    
+    ```go
+    // Let Bubble Tea detect automatically (preferred)
+    p := tea.NewProgram(model{})
+    
+    // Only force when needed (e.g., testing)
+    p := tea.NewProgram(model{}, tea.WithColorProfile(colorprofile.Ascii))
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Status Bar
+
+```go
+statusStyle := lipgloss.NewStyle().
+    Background(lipgloss.Color("#7D56F4")).
+    Foreground(lipgloss.Color("#FFFFFF")).
+    Padding(0, 1).
+    Width(m.width)
+
+status := statusStyle.Render("Ready")
+```
+
+### Table Layout
+
+```go
+headerStyle := lipgloss.NewStyle().
+    Bold(true).
+    Background(lipgloss.Color("#7D56F4")).
+    Foreground(lipgloss.Color("#FFFFFF")).
+    Padding(0, 1)
+
+cellStyle := lipgloss.NewStyle().
+    Padding(0, 1).
+    Width(20)
+
+header1 := headerStyle.Render("Name")
+header2 := headerStyle.Render("Value")
+
+headerRow := lipgloss.JoinHorizontal(lipgloss.Top, header1, header2)
+```
+
+### Progress Indicators
+
+```go
+progressStyle := lipgloss.NewStyle().
+    Background(lipgloss.Color("#7D56F4")).
+    Foreground(lipgloss.Color("#FFFFFF"))
+
+emptyStyle := lipgloss.NewStyle().
+    Background(lipgloss.Color("#333333"))
+
+filled := progressStyle.Render(strings.Repeat(" ", progress))
+empty := emptyStyle.Render(strings.Repeat(" ", total-progress))
+
+bar := "[" + filled + empty + "]"
+```
+
+## Related
+
+- [Lip Gloss Documentation](https://github.com/charmbracelet/lipgloss)
+- [Bubbles Components](https://github.com/charmbracelet/bubbles) - Pre-styled UI components
+- [Input Handling](/guides/input-handling) - Add interactivity to styled elements
+- [Testing](/guides/testing) - Test with specific color profiles

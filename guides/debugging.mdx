@@ -1,0 +1,475 @@
+---
+title: Debugging
+description: Debug your Bubble Tea applications with logging and debugger tools
+---
+
+## Overview
+
+Debugging terminal UIs presents unique challenges since stdout is occupied by your application. Bubble Tea provides logging utilities and debugger integration to help you debug effectively.
+
+## Log to File
+
+The primary debugging technique is logging to a file:
+
+### LogToFile
+
+```go logging.go:11-25
+import tea "charm.land/bubbletea/v2"
+
+f, err := tea.LogToFile("debug.log", "debug")
+if err != nil {
+    fmt.Println("fatal:", err)
+    os.Exit(1)
+}
+defer f.Close()
+```
+
+### Complete Example
+
+```go examples/simple/main.go:14-29
+func main() {
+    // Log to a file. Useful in debugging since you can't really log to stdout.
+    logfilePath := os.Getenv("BUBBLETEA_LOG")
+    if logfilePath != "" {
+        if _, err := tea.LogToFile(logfilePath, "simple"); err != nil {
+            log.Fatal(err)
+        }
+    }
+
+    // Initialize our program
+    p := tea.NewProgram(model(5))
+    if _, err := p.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Using the Logger
+
+After setting up file logging, use Go's standard `log` package:
+
+```go
+import "log"
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    log.Printf("Received message: %T", msg)
+    
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        log.Printf("Key pressed: %s", msg.String())
+        
+    case statusMsg:
+        log.Printf("Status: %d", msg)
+    }
+    
+    return m, nil
+}
+```
+
+### Watch Logs in Real-Time
+
+View logs as your program runs:
+
+```bash README.md:312-313
+tail -f debug.log
+```
+
+Run this in a separate terminal while your Bubble Tea app runs.
+
+## Custom Logger
+
+Use a custom logger with `LogToFileWith`:
+
+```go logging.go:27-53
+import (
+    "log"
+    tea "charm.land/bubbletea/v2"
+)
+
+customLogger := log.New(os.Stdout, "", 0)
+f, err := tea.LogToFileWith("debug.log", "myapp", customLogger)
+if err != nil {
+    log.Fatal(err)
+}
+defer f.Close()
+
+// Now customLogger writes to debug.log
+customLogger.Println("Application started")
+```
+
+### Charm's Log Library
+
+```go
+import (
+    tea "charm.land/bubbletea/v2"
+    "github.com/charmbracelet/log"
+)
+
+logger := log.New(os.Stderr)
+f, err := tea.LogToFileWith("debug.log", "app", logger)
+if err != nil {
+    log.Fatal(err)
+}
+defer f.Close()
+
+logger.Info("Application started")
+logger.Debug("Debug information", "key", "value")
+logger.Error("An error occurred", "err", err)
+```
+
+## Debugging with Delve
+
+Use Delve debugger in headless mode:
+
+### Start Headless Debugger
+
+```bash README.md:277-283
+# Start the debugger
+dlv debug --headless --api-version=2 --listen=127.0.0.1:43000 .
+```
+
+<Note>
+The `--listen` flag sets a consistent port. Without it, the port changes on each run.
+</Note>
+
+### Connect to Debugger
+
+From another terminal:
+
+```bash README.md:282-284
+dlv connect 127.0.0.1:43000
+```
+
+### API Version
+
+```bash README.md:286-293
+# Use API version 2 (recommended)
+dlv debug --headless --api-version=2 --listen=127.0.0.1:43000 .
+```
+
+<Note>
+Delve defaults to version 1 for backwards compatibility, but version 2 is recommended for new development.
+</Note>
+
+### Debugger Commands
+
+Once connected:
+
+```bash
+# Set breakpoint
+(dlv) break main.go:42
+
+# Continue execution
+(dlv) continue
+
+# Step through code
+(dlv) next
+(dlv) step
+
+# Inspect variables
+(dlv) print m
+(dlv) print msg
+
+# List local variables
+(dlv) locals
+
+# View stack trace
+(dlv) stack
+```
+
+## IDE Integration
+
+### VS Code
+
+Configure `.vscode/launch.json`:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Bubble Tea",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "apiVersion": 2
+    },
+    {
+      "name": "Attach to Delve",
+      "type": "go",
+      "request": "attach",
+      "mode": "remote",
+      "remotePath": "${workspaceFolder}",
+      "port": 43000,
+      "host": "127.0.0.1",
+      "apiVersion": 2
+    }
+  ]
+}
+```
+
+Run headless Delve, then use "Attach to Delve" in VS Code.
+
+### GoLand / IntelliJ
+
+1. Run > Edit Configurations
+2. Add New Configuration > Go Remote
+3. Set Host: `127.0.0.1`, Port: `43000`
+4. Start headless Delve
+5. Run your remote configuration
+
+## Debugging Strategies
+
+### Log Model State
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    log.Printf("Before update: %+v", m)
+    
+    // ... handle message ...
+    
+    log.Printf("After update: %+v", m)
+    return m, cmd
+}
+```
+
+### Log Message Flow
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    log.Printf("MSG: %T %+v", msg, msg)
+    
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        log.Printf("Key: code=%d text=%q keystroke=%s", 
+            msg.Key().Code, msg.Key().Text, msg.Keystroke())
+    }
+    
+    return m, nil
+}
+```
+
+### Log Command Execution
+
+```go
+func fetchData() tea.Msg {
+    log.Println("fetchData: starting")
+    
+    data, err := http.Get("...")
+    if err != nil {
+        log.Printf("fetchData: error: %v", err)
+        return errMsg{err}
+    }
+    
+    log.Printf("fetchData: success, got %d bytes", len(data))
+    return dataMsg(data)
+}
+```
+
+### Trace View Rendering
+
+```go
+func (m model) View() tea.View {
+    log.Printf("View: rendering with state: %+v", m)
+    
+    content := m.buildView()
+    
+    log.Printf("View: rendered %d lines", strings.Count(content, "\n"))
+    return tea.NewView(content)
+}
+```
+
+## Conditional Logging
+
+Enable logging only when needed:
+
+```go examples/simple/main.go:17-22
+logfilePath := os.Getenv("BUBBLETEA_LOG")
+if logfilePath != "" {
+    if _, err := tea.LogToFile(logfilePath, "simple"); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+Run with logging:
+
+```bash
+BUBBLETEA_LOG=debug.log go run main.go
+```
+
+Run without logging:
+
+```bash
+go run main.go
+```
+
+## Debug Mode Flag
+
+```go
+var debug = flag.Bool("debug", false, "enable debug logging")
+
+func main() {
+    flag.Parse()
+    
+    if *debug {
+        f, err := tea.LogToFile("debug.log", "app")
+        if err != nil {
+            log.Fatal(err)
+        }
+        defer f.Close()
+    }
+    
+    p := tea.NewProgram(initialModel())
+    if _, err := p.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+Usage:
+
+```bash
+go run main.go --debug
+```
+
+## Panic Recovery
+
+Bubble Tea catches panics by default:
+
+```go options.go:72-80
+// Disable panic catching (for debugging)
+p := tea.NewProgram(model, tea.WithoutCatchPanics())
+```
+
+<Warning>
+Disabling panic recovery will leave your terminal in an unusable state after a panic. Only use this during active debugging.
+</Warning>
+
+## Testing and Debugging
+
+Use test mode to debug without rendering:
+
+```go options.go:98-102
+// Run without renderer for debugging
+p := tea.NewProgram(model, tea.WithoutRenderer())
+```
+
+This makes it easier to add debug prints that won't interfere with the TUI.
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Messages Not Received">
+    Log in both Update and the command:
+    
+    ```go
+    func myCommand() tea.Msg {
+        log.Println("Command executing")
+        result := doWork()
+        log.Printf("Command returning: %+v", result)
+        return result
+    }
+    
+    func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+        log.Printf("Update received: %T", msg)
+        // ...
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="UI Not Rendering">
+    Check View is called and returns content:
+    
+    ```go
+    func (m model) View() tea.View {
+        log.Println("View called")
+        content := m.render()
+        log.Printf("View content length: %d", len(content))
+        return tea.NewView(content)
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Commands Not Executing">
+    Verify commands are returned and not nil:
+    
+    ```go
+    func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+        var cmd tea.Cmd
+        
+        // ... update logic ...
+        
+        if cmd != nil {
+            log.Printf("Returning command: %T", cmd)
+        } else {
+            log.Println("Returning nil command")
+        }
+        
+        return m, cmd
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Race Conditions">
+    Enable race detection:
+    
+    ```bash
+    go run -race main.go
+    ```
+    
+    Never mutate model from commands - always return messages:
+    
+    ```go
+    // Bad: Mutates model from goroutine
+    func (m *model) badCommand() tea.Cmd {
+        go func() {
+            m.data = fetchData()  // Race condition!
+        }()
+        return nil
+    }
+    
+    // Good: Returns message
+    func fetchData() tea.Msg {
+        data := fetchData()
+        return dataMsg(data)
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Log Liberally" icon="file-lines">
+    Add logs throughout your code during development. Remove or gate them behind flags for production.
+  </Card>
+  
+  <Card title="Use Structured Logging" icon="list">
+    Include context in your logs:
+    ```go
+    log.Printf("user=%s action=%s result=%v", 
+        user, action, result)
+    ```
+  </Card>
+  
+  <Card title="Watch Logs Live" icon="eye">
+    Always run `tail -f debug.log` in a separate terminal during debugging.
+  </Card>
+  
+  <Card title="Log Before Crashes" icon="triangle-exclamation">
+    Add logs before operations that might panic:
+    ```go
+    log.Printf("About to access index %d of slice len %d", 
+        i, len(slice))
+    ```
+  </Card>
+</CardGroup>
+
+## Related
+
+- [Testing](/guides/testing) - Test your application
+- [Async Operations](/guides/async-operations) - Debug commands and I/O
+- [Delve Documentation](https://github.com/go-delve/delve) - Full Delve reference

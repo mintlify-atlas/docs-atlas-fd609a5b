@@ -1,0 +1,334 @@
+---
+title: Clipboard Messages
+description: Handle clipboard operations in Bubble Tea applications
+---
+
+## Overview
+
+Clipboard messages enable reading from and writing to the system clipboard using OSC52 escape sequences. Note that OSC52 support varies by terminal emulator.
+
+## Message Types
+
+### ClipboardMsg
+
+Represents a clipboard read event containing the clipboard contents.
+
+```go
+type ClipboardMsg struct {
+    Content   string
+    Selection byte
+}
+```
+
+<ResponseField name="Content" type="string">
+  The text content read from the clipboard.
+</ResponseField>
+
+<ResponseField name="Selection" type="byte">
+  The clipboard selection type: 'c' for system clipboard, 'p' for primary clipboard (X11/Wayland only).
+</ResponseField>
+
+**Methods:**
+
+- `Clipboard() byte` - Returns the clipboard selection type
+- `String() string` - Returns the clipboard content as a string
+
+## Functions
+
+### SetClipboard
+
+Produces a command that sets the system clipboard using OSC52.
+
+```go
+func SetClipboard(s string) Cmd
+```
+
+<ParamField name="s" type="string" required>
+  The text content to write to the system clipboard.
+</ParamField>
+
+<ParamField name="returns" type="Cmd">
+  Returns a command that sets the clipboard.
+</ParamField>
+
+### ReadClipboard
+
+Produces a message that reads the system clipboard using OSC52.
+
+```go
+func ReadClipboard() Msg
+```
+
+<ParamField name="returns" type="Msg">
+  Returns a message that will trigger a clipboard read. The result is delivered via a ClipboardMsg.
+</ParamField>
+
+### SetPrimaryClipboard
+
+Produces a command that sets the primary clipboard using OSC52 (X11/Wayland only).
+
+```go
+func SetPrimaryClipboard(s string) Cmd
+```
+
+<ParamField name="s" type="string" required>
+  The text content to write to the primary clipboard.
+</ParamField>
+
+<ParamField name="returns" type="Cmd">
+  Returns a command that sets the primary clipboard.
+</ParamField>
+
+<Note>
+Primary clipboard is only available on X11 and Wayland systems. It typically contains the last selected text.
+</Note>
+
+### ReadPrimaryClipboard
+
+Produces a message that reads the primary clipboard using OSC52 (X11/Wayland only).
+
+```go
+func ReadPrimaryClipboard() Msg
+```
+
+<ParamField name="returns" type="Msg">
+  Returns a message that will trigger a primary clipboard read. The result is delivered via a ClipboardMsg.
+</ParamField>
+
+## Usage Examples
+
+### Copying to Clipboard
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "ctrl+c" {
+            // Copy selected text to clipboard
+            return m, tea.SetClipboard(m.selectedText)
+        }
+    }
+    return m, nil
+}
+```
+
+### Reading from Clipboard
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "ctrl+v" {
+            // Request clipboard contents
+            return m, tea.ReadClipboard
+        }
+    
+    case tea.ClipboardMsg:
+        // Paste clipboard contents
+        m.content += msg.String()
+    }
+    return m, nil
+}
+```
+
+### Copy and Paste Operations
+
+```go
+type model struct {
+    content       string
+    clipboard     string
+    cursorPos     int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "ctrl+c":
+            // Copy
+            if m.hasSelection() {
+                selected := m.getSelectedText()
+                m.clipboard = selected
+                return m, tea.SetClipboard(selected)
+            }
+        
+        case "ctrl+x":
+            // Cut
+            if m.hasSelection() {
+                selected := m.getSelectedText()
+                m.clipboard = selected
+                m.deleteSelection()
+                return m, tea.SetClipboard(selected)
+            }
+        
+        case "ctrl+v":
+            // Paste
+            return m, tea.ReadClipboard
+        }
+    
+    case tea.ClipboardMsg:
+        // Insert clipboard contents at cursor
+        m.insertAtCursor(msg.String())
+    }
+    return m, nil
+}
+```
+
+### Using Primary Clipboard (X11/Wayland)
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseReleaseMsg:
+        // When text is selected with mouse, copy to primary clipboard
+        if m.hasSelection() {
+            selected := m.getSelectedText()
+            return m, tea.SetPrimaryClipboard(selected)
+        }
+    
+    case tea.MouseClickMsg:
+        if msg.Button == tea.MouseMiddle {
+            // Middle-click to paste from primary clipboard
+            return m, tea.ReadPrimaryClipboard
+        }
+    
+    case tea.ClipboardMsg:
+        if msg.Clipboard() == 'p' {
+            // Primary clipboard content
+            m.insertAtCursor(msg.String())
+        } else if msg.Clipboard() == 'c' {
+            // System clipboard content
+            m.insertAtCursor(msg.String())
+        }
+    }
+    return m, nil
+}
+```
+
+### Clipboard with Feedback
+
+```go
+type model struct {
+    content       string
+    statusMessage string
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "ctrl+c" && m.hasSelection() {
+            m.statusMessage = "Copied to clipboard"
+            return m, tea.Batch(
+                tea.SetClipboard(m.getSelectedText()),
+                clearStatusAfter(2*time.Second),
+            )
+        }
+    
+    case tea.ClipboardMsg:
+        m.statusMessage = fmt.Sprintf("Pasted %d characters", len(msg.String()))
+        m.insertAtCursor(msg.String())
+        return m, clearStatusAfter(2*time.Second)
+    }
+    return m, nil
+}
+
+func clearStatusAfter(d time.Duration) tea.Cmd {
+    return tea.Tick(d, func(time.Time) tea.Msg {
+        return clearStatusMsg{}
+    })
+}
+```
+
+### Checking Clipboard Selection Type
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.ClipboardMsg:
+        switch msg.Clipboard() {
+        case 'c':
+            // System clipboard
+            m.log("Pasted from system clipboard")
+        case 'p':
+            // Primary clipboard (X11/Wayland)
+            m.log("Pasted from primary selection")
+        }
+        m.insertAtCursor(msg.Content)
+    }
+    return m, nil
+}
+```
+
+### Export to Clipboard
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "e" {
+            // Export entire document to clipboard
+            return m, tea.SetClipboard(m.exportDocument())
+        }
+        if msg.String() == "E" {
+            // Export as different format
+            formatted := m.exportAsMarkdown()
+            return m, tea.SetClipboard(formatted)
+        }
+    }
+    return m, nil
+}
+```
+
+### Clipboard History
+
+```go
+type model struct {
+    clipboardHistory []string
+    maxHistory       int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "ctrl+c" && m.hasSelection() {
+            text := m.getSelectedText()
+            
+            // Add to history
+            m.clipboardHistory = append([]string{text}, m.clipboardHistory...)
+            if len(m.clipboardHistory) > m.maxHistory {
+                m.clipboardHistory = m.clipboardHistory[:m.maxHistory]
+            }
+            
+            return m, tea.SetClipboard(text)
+        }
+    }
+    return m, nil
+}
+```
+
+## Terminal Compatibility
+
+<Warning>
+OSC52 clipboard support varies by terminal emulator. Some terminals may:
+- Not support OSC52 at all
+- Only support writing to clipboard (not reading)
+- Require specific configuration to enable OSC52
+- Have size limits on clipboard operations
+</Warning>
+
+Terminals with good OSC52 support include:
+- Kitty
+- WezTerm
+- iTerm2
+- Alacritty (recent versions)
+- Windows Terminal
+- tmux (with proper configuration)
+
+## Notes
+
+- OSC52 is not supported in all terminal emulators
+- Some terminals only support writing to clipboard, not reading from it
+- The primary clipboard ('p') is specific to X11 and Wayland systems
+- On systems without a primary clipboard, primary clipboard operations may have no effect
+- Clipboard operations are asynchronous - results arrive via ClipboardMsg
+- Large clipboard contents may be truncated depending on terminal limitations

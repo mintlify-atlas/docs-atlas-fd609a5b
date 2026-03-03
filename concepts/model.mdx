@@ -1,0 +1,469 @@
+---
+title: 'Model'
+description: 'The heart of your Bubble Tea application - managing state and defining behavior'
+---
+
+The **Model** is the foundation of every Bubble Tea application. It holds your application's state and defines three core methods that control how your program behaves.
+
+## The Model Interface
+
+From [tea.go:51-64](/workspace/source/tea.go:51):
+
+```go
+// Model contains the program's state as well as its core functions.
+type Model interface {
+    // Init is the first function that will be called. It returns an optional
+    // initial command. To not perform an initial command return nil.
+    Init() Cmd
+
+    // Update is called when a message is received. Use it to inspect messages
+    // and, in response, update the model and/or send a command.
+    Update(Msg) (Model, Cmd)
+
+    // View renders the program's UI, which can be a string or a [Layer]. The
+    // view is rendered after every Update.
+    View() View
+}
+```
+
+<Note>
+  Any type that implements these three methods can be a Model. While structs are most common, you could even use a simple type like `int` or `string` for very basic applications.
+</Note>
+
+## Choosing Your Model Type
+
+### Struct (Recommended)
+
+Most applications use a struct to hold multiple pieces of state:
+
+```go
+type model struct {
+    username     string
+    password     string
+    cursor       int
+    loading      bool
+    err          error
+    textInput    textinput.Model  // Nested models!
+}
+```
+
+### Simple Types
+
+For trivial programs, a simple type works too:
+
+```go
+// A countdown timer model
+type model int
+
+func (m model) Init() tea.Cmd {
+    return tick
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tickMsg:
+        m--
+        if m <= 0 {
+            return m, tea.Quit
+        }
+        return m, tick
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    return tea.NewView(fmt.Sprintf("Countdown: %d", m))
+}
+```
+
+See [examples/simple/main.go:34](/workspace/source/examples/simple/main.go:34) for a real example.
+
+## The Init Method
+
+The first method called when your program starts.
+
+### Signature
+
+```go
+func (m model) Init() tea.Cmd
+```
+
+### Purpose
+
+- Set up initial state (if not done in struct initialization)
+- Trigger initial I/O operations
+- Start timers or background tasks
+
+### Return Value
+
+- Return a `Cmd` to perform initial I/O
+- Return `nil` if no initial command is needed
+
+### Examples
+
+<CodeGroup>
+
+```go No Initial Command
+func (m model) Init() tea.Cmd {
+    // No I/O needed at startup
+    return nil
+}
+```
+
+```go Start a Timer
+func (m model) Init() tea.Cmd {
+    // Start ticking immediately
+    return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+        return tickMsg(t)
+    })
+}
+```
+
+```go Batch Multiple Commands
+func (m model) Init() tea.Cmd {
+    return tea.Batch(
+        fetchUserData(),
+        startHeartbeat(),
+        tea.Tick(time.Second, func(t time.Time) tea.Msg {
+            return tickMsg(t)
+        }),
+    )
+}
+```
+
+</CodeGroup>
+
+## The Update Method
+
+The heart of your application - handles all events and state changes.
+
+### Signature
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd)
+```
+
+### Purpose
+
+- Receive messages (events)
+- Update the model based on the message
+- Return the updated model
+- Optionally return a command for I/O
+
+### Message Handling Pattern
+
+The typical pattern uses a type switch:
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "ctrl+c", "q":
+            return m, tea.Quit
+        case "enter":
+            return m, m.submitForm()
+        }
+    
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    
+    case submitSuccessMsg:
+        m.success = true
+        return m, nil
+    
+    case submitErrorMsg:
+        m.err = msg.err
+        return m, nil
+    }
+    
+    return m, nil
+}
+```
+
+See [tutorials/basics/main.go:32-57](/workspace/source/tutorials/basics/main.go:32) for a complete example.
+
+### Important Rules
+
+<Warning>
+  **Never mutate the model in place and return it!**
+  
+  While Go allows this, it's better to treat Update as if it returns a new model. This makes your code more predictable.
+  
+  ```go
+  // This works but is not recommended
+  func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+      m.count++  // Mutating in place
+      return m, nil
+  }
+  
+  // Better: be explicit about what changed
+  func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+      m.count = m.count + 1  // Clear that we're updating
+      return m, nil
+  }
+  ```
+</Warning>
+
+### Delegating to Nested Models
+
+Models often contain other models (composition):
+
+```go
+type model struct {
+    textInput textinput.Model
+    list      list.Model
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    var cmds []tea.Cmd
+    
+    // Let the text input handle its messages
+    var cmd tea.Cmd
+    m.textInput, cmd = m.textInput.Update(msg)
+    cmds = append(cmds, cmd)
+    
+    // Let the list handle its messages
+    m.list, cmd = m.list.Update(msg)
+    cmds = append(cmds, cmd)
+    
+    // Handle your own messages
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "enter" {
+            return m, m.submit()
+        }
+    }
+    
+    return m, tea.Batch(cmds...)
+}
+```
+
+## The View Method
+
+Renders your application's UI based on the current model state.
+
+### Signature
+
+```go
+func (m model) View() tea.View
+```
+
+### Purpose
+
+- Read the current model state
+- Return a `View` representing what to display
+- **Never** modify the model
+
+### Basic Example
+
+```go
+func (m model) View() tea.View {
+    s := "What should we buy at the market?\n\n"
+    
+    for i, choice := range m.choices {
+        cursor := " "
+        if m.cursor == i {
+            cursor = ">"
+        }
+        
+        checked := " "
+        if _, ok := m.selected[i]; ok {
+            checked = "x"
+        }
+        
+        s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
+    }
+    
+    s += "\nPress q to quit.\n"
+    
+    return tea.NewView(s)
+}
+```
+
+See [tutorials/basics/main.go:59-82](/workspace/source/tutorials/basics/main.go:59) for the complete example.
+
+### Views Are Declarative
+
+<Tip>
+  You describe **what** to show, not **how** to draw it. Bubble Tea handles the rendering efficiently.
+  
+  Don't worry about:
+  - Clearing the screen
+  - Moving the cursor
+  - Erasing old content
+  - Optimizing redraws
+  
+  Just return what should be visible!
+</Tip>
+
+## Complete Example
+
+Here's a shopping list application showing all three methods:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    
+    tea "charm.land/bubbletea/v2"
+)
+
+// Model: holds application state
+type model struct {
+    cursor   int
+    choices  []string
+    selected map[int]struct{}
+}
+
+// Create initial model
+func initialModel() model {
+    return model{
+        choices:  []string{"Buy carrots", "Buy celery", "Buy kohlrabi"},
+        selected: make(map[int]struct{}),
+    }
+}
+
+// Init: no initial command needed
+func (m model) Init() tea.Cmd {
+    return nil
+}
+
+// Update: handle messages
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "ctrl+c", "q":
+            return m, tea.Quit
+        case "up", "k":
+            if m.cursor > 0 {
+                m.cursor--
+            }
+        case "down", "j":
+            if m.cursor < len(m.choices)-1 {
+                m.cursor++
+            }
+        case "enter", "space":
+            _, ok := m.selected[m.cursor]
+            if ok {
+                delete(m.selected, m.cursor)
+            } else {
+                m.selected[m.cursor] = struct{}{}
+            }
+        }
+    }
+    return m, nil
+}
+
+// View: render UI
+func (m model) View() tea.View {
+    s := "What should we buy at the market?\n\n"
+    
+    for i, choice := range m.choices {
+        cursor := " "
+        if m.cursor == i {
+            cursor = ">"
+        }
+        
+        checked := " "
+        if _, ok := m.selected[i]; ok {
+            checked = "x"
+        }
+        
+        s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
+    }
+    
+    s += "\nPress q to quit.\n"
+    
+    return tea.NewView(s)
+}
+
+func main() {
+    p := tea.NewProgram(initialModel())
+    if _, err := p.Run(); err != nil {
+        fmt.Printf("Error: %v", err)
+        os.Exit(1)
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep Models Simple">
+    Don't put complex logic in your model struct. Use helper functions and separate packages.
+    
+    ```go
+    // Good: Model is just data
+    type model struct {
+        items []item
+        filter string
+    }
+    
+    func (m model) filteredItems() []item {
+        return filterItems(m.items, m.filter)
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Compose Models">
+    Build complex UIs from smaller, reusable models.
+    
+    ```go
+    type model struct {
+        header headerModel
+        body   bodyModel
+        footer footerModel
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Private Fields">
+    Make model fields private (lowercase) to enforce updates through Update method.
+    
+    ```go
+    type model struct {
+        count int  // private - can't be modified from outside
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle All Message Types">
+    Even if you don't care about a message, handle it explicitly.
+    
+    ```go
+    func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+        switch msg := msg.(type) {
+        case tea.WindowSizeMsg:
+            // Handle resize
+        case tea.KeyPressMsg:
+            // Handle keys
+        default:
+            // Explicitly ignore other messages
+        }
+        return m, nil
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Messages" icon="envelope" href="/concepts/messages">
+    Learn about the different types of messages your Update method receives
+  </Card>
+  
+  <Card title="Commands" icon="terminal" href="/concepts/commands">
+    Discover how to perform I/O operations and trigger side effects
+  </Card>
+  
+  <Card title="Views" icon="eye" href="/concepts/views">
+    Deep dive into rendering and the View type
+  </Card>
+</CardGroup>

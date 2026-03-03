@@ -1,0 +1,377 @@
+---
+title: Input Handling
+description: Learn how to handle keyboard input in Bubble Tea applications
+---
+
+## Overview
+
+Bubble Tea provides robust keyboard input handling through the `KeyPressMsg` and `KeyReleaseMsg` message types. Input handling is a core part of The Elm Architecture pattern, where all user interactions flow through the `Update` method as messages.
+
+## Key Messages
+
+### KeyPressMsg
+
+The `KeyPressMsg` is sent when a key is pressed. It wraps a `Key` struct containing detailed information about the key event:
+
+```go key.go:190-197
+type KeyPressMsg Key
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "enter":
+            fmt.Println("you pressed enter!")
+        case "a":
+            fmt.Println("you pressed a!")
+        }
+    }
+    return m, nil
+}
+```
+
+### Key Structure
+
+The `Key` type provides detailed information about keyboard events:
+
+```go
+type Key struct {
+    // Text contains the actual characters received
+    Text string
+    
+    // Mod represents modifier keys (Ctrl, Alt, Shift, etc.)
+    Mod KeyMod
+    
+    // Code represents the key pressed (KeyTab, KeyEnter, etc.)
+    Code rune
+    
+    // ShiftedCode is the shifted key (e.g., 'A' when shift+a is pressed)
+    ShiftedCode rune
+    
+    // BaseCode is the key on standard PC-101 layout
+    BaseCode rune
+    
+    // IsRepeat indicates if the key is being held down
+    IsRepeat bool
+}
+```
+
+## Input Handling Patterns
+
+### String Matching (Simple)
+
+The most common pattern is to match against the string representation of the key:
+
+```go examples/simple/main.go:45-54
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "ctrl+c", "q":
+            return m, tea.Quit
+        case "ctrl+z":
+            return m, tea.Suspend
+        }
+    }
+    return m, nil
+}
+```
+
+### Key Code Matching (Type-Safe)
+
+For more robust matching, use the key code:
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        key := msg.Key()
+        switch key.Code {
+        case tea.KeyEnter:
+            return m, submitForm()
+        case tea.KeyEsc:
+            return m, tea.Quit
+        default:
+            if key.Text == "a" && key.Mod == tea.ModCtrl {
+                return m, selectAll()
+            }
+        }
+    }
+    return m, nil
+}
+```
+
+### Navigation Keys
+
+Handle arrow keys and vim-style navigation:
+
+```go README.md:166-186
+switch msg.String() {
+case "ctrl+c", "q":
+    return m, tea.Quit
+
+// The "up" and "k" keys move the cursor up
+case "up", "k":
+    if m.cursor > 0 {
+        m.cursor--
+    }
+
+// The "down" and "j" keys move the cursor down
+case "down", "j":
+    if m.cursor < len(m.choices)-1 {
+        m.cursor++
+    }
+
+// The "enter" key and space bar toggle selection
+case "enter", " ":
+    _, ok := m.selected[m.cursor]
+    if ok {
+        delete(m.selected, m.cursor)
+    } else {
+        m.selected[m.cursor] = struct{}{}
+    }
+}
+```
+
+## Special Keys
+
+Bubble Tea supports a comprehensive set of special keys:
+
+### Navigation Keys
+
+```go key.go:20-32
+KeyUp
+KeyDown
+KeyRight
+KeyLeft
+KeyHome
+KeyEnd
+KeyPgUp
+KeyPgDown
+KeyInsert
+KeyDelete
+```
+
+### Function Keys
+
+```go key.go:72-103
+KeyF1 through KeyF63
+```
+
+### Modifier Keys
+
+```go key.go:161-174
+KeyLeftShift
+KeyLeftAlt
+KeyLeftCtrl
+KeyLeftSuper
+KeyRightShift
+KeyRightAlt
+KeyRightCtrl
+KeyRightSuper
+```
+
+### Control Keys
+
+```go key.go:178-183
+KeyBackspace
+KeyTab
+KeyEnter
+KeyReturn
+KeyEscape
+KeySpace
+```
+
+## Keyboard Enhancements
+
+Modern terminals support enhanced keyboard protocols that provide additional information:
+
+```go keyboard.go:8-29
+type KeyboardEnhancementsMsg struct {
+    // Flags is a bitmask of enabled keyboard enhancement features
+    Flags int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyboardEnhancementsMsg:
+        if msg.SupportsEventTypes() {
+            // Terminal supports press/release/repeat events
+        }
+        if msg.SupportsKeyDisambiguation() {
+            // Terminal can distinguish modifier keys
+        }
+    }
+    return m, nil
+}
+```
+
+## Key Release Events
+
+Handle key release events with `KeyReleaseMsg`:
+
+```go key.go:223-255
+type KeyReleaseMsg Key
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        // Key was pressed
+        m.keyPressed = true
+        
+    case tea.KeyReleaseMsg:
+        // Key was released
+        m.keyPressed = false
+    }
+    return m, nil
+}
+```
+
+<Note>
+Key release events require terminal support for keyboard enhancements (Kitty keyboard protocol or Windows Console API).
+</Note>
+
+## Catching All Keys
+
+Use the `KeyMsg` interface to catch both press and release events:
+
+```go key.go:257-264
+switch msg := msg.(type) {
+case tea.KeyMsg:
+    // Catches both KeyPressMsg and KeyReleaseMsg
+    key := msg.Key()
+    fmt.Printf("Key event: %s\n", key.String())
+}
+```
+
+## Modifier Detection
+
+Detect modifier keys in combination:
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        key := msg.Key()
+        
+        // Check for Ctrl+C
+        if key.Text == "c" && key.Mod&tea.ModCtrl != 0 {
+            return m, tea.Quit
+        }
+        
+        // Check for Shift+Tab
+        if key.Code == tea.KeyTab && key.Mod&tea.ModShift != 0 {
+            return m, focusPrevious()
+        }
+    }
+    return m, nil
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use String Matching for Simplicity">
+    For most cases, `msg.String()` provides a clean, readable API:
+    
+    ```go
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "q", "ctrl+c":
+            return m, tea.Quit
+        }
+    ```
+  </Accordion>
+
+  <Accordion title="Use Key Codes for Robustness">
+    When you need precise control or locale-independence, match on key codes:
+    
+    ```go
+    case tea.KeyPressMsg:
+        key := msg.Key()
+        if key.Code == tea.KeyEnter {
+            return m, submit()
+        }
+    ```
+  </Accordion>
+
+  <Accordion title="Provide Multiple Key Bindings">
+    Support both arrow keys and vim-style navigation:
+    
+    ```go
+    case "up", "k":
+        m.cursor--
+    case "down", "j":
+        m.cursor++
+    ```
+  </Accordion>
+
+  <Accordion title="Always Handle Quit Keys">
+    Ensure users can always exit your application:
+    
+    ```go examples/simple/main.go:48-50
+    switch msg.String() {
+    case "ctrl+c", "q":
+        return m, tea.Quit
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Form Input
+
+```go
+type model struct {
+    input string
+    cursor int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "backspace":
+            if len(m.input) > 0 {
+                m.input = m.input[:len(m.input)-1]
+            }
+        case "enter":
+            return m, submitForm(m.input)
+        default:
+            if msg.Key().Text != "" {
+                m.input += msg.Key().Text
+            }
+        }
+    }
+    return m, nil
+}
+```
+
+### List Navigation
+
+```go README.md:166-176
+case "up", "k":
+    if m.cursor > 0 {
+        m.cursor--
+    }
+
+case "down", "j":
+    if m.cursor < len(m.choices)-1 {
+        m.cursor++
+    }
+```
+
+### Disabling Input
+
+Disable input processing entirely by passing `nil` to `WithInput`:
+
+```go options.go:36-45
+p := tea.NewProgram(model, tea.WithInput(nil))
+```
+
+## Related
+
+- [Mouse Support](/guides/mouse-support) - Handle mouse input
+- [Async Operations](/guides/async-operations) - Perform I/O in response to input
+- [Testing](/guides/testing) - Test input handling with `WithInput`

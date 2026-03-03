@@ -1,0 +1,358 @@
+---
+title: Model Interface
+description: The Model interface defines the core structure of a Bubble Tea application's state and behavior.
+---
+
+## Overview
+
+The `Model` interface is the heart of a Bubble Tea application. It defines three essential methods that implement The Elm Architecture pattern: initialization, updates, and rendering.
+
+Every Bubble Tea program must implement this interface.
+
+## Interface Definition
+
+```go
+type Model interface {
+    Init() Cmd
+    Update(Msg) (Model, Cmd)
+    View() View
+}
+```
+
+## Methods
+
+### Init
+
+The first function called when the program starts. Returns an optional initial command.
+
+```go
+Init() Cmd
+```
+
+<ResponseField name="Cmd" type="Cmd">
+  An optional initial command to perform I/O operations. Return `nil` to not perform an initial command.
+</ResponseField>
+
+**Purpose:**
+- Set up initial state
+- Start timers or background processes
+- Fetch initial data
+- Subscribe to external events
+
+**Example:**
+
+```go
+type model struct {
+    ready bool
+}
+
+func (m model) Init() tea.Cmd {
+    // Start with a tick command
+    return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+        return tickMsg(t)
+    })
+}
+```
+
+**Example (no initial command):**
+
+```go
+func (m model) Init() tea.Cmd {
+    // Nothing to do on startup
+    return nil
+}
+```
+
+**Example (batch commands):**
+
+```go
+func (m model) Init() tea.Cmd {
+    // Run multiple commands concurrently
+    return tea.Batch(
+        fetchDataCmd,
+        startTimerCmd,
+        checkForUpdatesCmd,
+    )
+}
+```
+
+### Update
+
+Called when a message is received. Inspect messages and update the model accordingly.
+
+```go
+Update(Msg) (Model, Cmd)
+```
+
+<ParamField path="Msg" type="Msg" required>
+  The message received. Messages are events from I/O operations, user input, timers, etc.
+</ParamField>
+
+<ResponseField name="Model" type="Model">
+  The updated model reflecting the new state.
+</ResponseField>
+
+<ResponseField name="Cmd" type="Cmd">
+  An optional command to perform I/O operations. Return `nil` if no command is needed.
+</ResponseField>
+
+**Purpose:**
+- Handle user input (keyboard, mouse)
+- Process results from commands
+- Update application state
+- Trigger new commands
+
+**Example:**
+
+```go
+type model struct {
+    count int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "q", "ctrl+c":
+            return m, tea.Quit
+        case "up":
+            m.count++
+        case "down":
+            m.count--
+        }
+    }
+    return m, nil
+}
+```
+
+**Example (with command):**
+
+```go
+type model struct {
+    loading bool
+    data    string
+}
+
+type dataLoadedMsg struct {
+    data string
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "l" {
+            m.loading = true
+            return m, loadDataCmd
+        }
+    
+    case dataLoadedMsg:
+        m.loading = false
+        m.data = msg.data
+    }
+    return m, nil
+}
+
+func loadDataCmd() tea.Msg {
+    // Simulate loading data
+    time.Sleep(2 * time.Second)
+    return dataLoadedMsg{data: "Hello, World!"}
+}
+```
+
+**Common message types:**
+
+- `tea.KeyPressMsg`: Key press events
+- `tea.KeyReleaseMsg`: Key release events  
+- `tea.MouseMsg`: Mouse events (clicks, movement, wheel)
+- `tea.WindowSizeMsg`: Terminal resize events
+- `tea.QuitMsg`: Program quit signal
+- `tea.SuspendMsg`: Program suspend signal
+- Custom message types from your commands
+
+### View
+
+Renders the program's UI. Called after every Update.
+
+```go
+View() View
+```
+
+<ResponseField name="View" type="View">
+  A View representing the UI to render to the terminal.
+</ResponseField>
+
+**Purpose:**
+- Render the current state as a visual representation
+- Display text, UI components, and styled content
+- Set terminal properties (colors, cursor, window title, etc.)
+
+**Example (simple string):**
+
+```go
+func (m model) View() tea.View {
+    return tea.NewView(fmt.Sprintf("Count: %d\n\nPress 'q' to quit.", m.count))
+}
+```
+
+**Example (with styling):**
+
+```go
+func (m model) View() tea.View {
+    s := lipgloss.NewStyle().
+        Bold(true).
+        Foreground(lipgloss.Color("#FF00FF")).
+        Render(fmt.Sprintf("Count: %d", m.count))
+    
+    return tea.NewView(s + "\n\nPress 'q' to quit.")
+}
+```
+
+**Example (with View configuration):**
+
+```go
+func (m model) View() tea.View {
+    v := tea.NewView("Hello, World!")
+    v.AltScreen = true
+    v.MouseMode = tea.MouseModeAllMotion
+    v.WindowTitle = "My Bubble Tea App"
+    return v
+}
+```
+
+## Complete Example
+
+Here's a complete implementation of the Model interface:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "time"
+
+    tea "charm.land/bubbletea/v2"
+)
+
+// Define the model
+type model struct {
+    count   int
+    running bool
+}
+
+// Init sets up the initial state
+func (m model) Init() tea.Cmd {
+    // Start the ticker
+    return tick
+}
+
+// Update handles messages and updates state
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "q", "ctrl+c":
+            return m, tea.Quit
+        case "space":
+            m.running = !m.running
+        }
+
+    case tickMsg:
+        if m.running {
+            m.count++
+        }
+        return m, tick
+    }
+    
+    return m, nil
+}
+
+// View renders the UI
+func (m model) View() tea.View {
+    status := "paused"
+    if m.running {
+        status = "running"
+    }
+    
+    s := fmt.Sprintf(
+        "Counter: %d (%s)\n\n"+
+        "Press space to pause/resume\n"+
+        "Press q to quit\n",
+        m.count,
+        status,
+    )
+    
+    return tea.NewView(s)
+}
+
+// Custom message type
+type tickMsg time.Time
+
+// Command that generates tick messages
+func tick() tea.Msg {
+    time.Sleep(time.Second)
+    return tickMsg(time.Now())
+}
+
+func main() {
+    p := tea.NewProgram(model{running: true})
+    if _, err := p.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+## Best Practices
+
+### Init
+
+- Keep initialization lightweight
+- Use commands for I/O operations, not Init itself
+- Return `nil` if you don't need any initial commands
+- Use `tea.Batch()` to run multiple commands concurrently
+
+### Update
+
+- Always return an updated model, even if nothing changed
+- Use type switches to handle different message types
+- Keep Update pure - no side effects, use commands instead
+- Return `tea.Quit` command to exit gracefully
+- Return `nil` for the command if no I/O is needed
+
+### View
+
+- View should be a pure function of the model state
+- Don't perform I/O or side effects in View
+- View is called after every Update, so keep it efficient
+- Use styling libraries like Lip Gloss for rich formatting
+- Remember that View is called frequently - cache expensive computations in the model
+
+## The Elm Architecture Flow
+
+The Model interface implements The Elm Architecture:
+
+1. **Init**: Initialize state and start any background processes
+2. **Update**: Process messages and update state
+3. **View**: Render the current state
+
+```
+┌──────────┐
+│   Init   │ Returns initial command
+└────┬─────┘
+     │
+     ▼
+┌──────────┐
+│  Update  │ ◄─── Messages from commands, user input, etc.
+└────┬─────┘
+     │
+     ├─── Returns updated model
+     │
+     └─── Returns optional command
+           │
+           ▼
+     ┌──────────┐
+     │   View   │ Renders the model
+     └──────────┘
+```
+
+This cycle repeats until the program quits.

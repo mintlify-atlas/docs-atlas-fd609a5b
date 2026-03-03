@@ -1,0 +1,622 @@
+---
+title: 'Commands'
+description: 'Performing I/O operations and side effects in Bubble Tea'
+---
+
+Commands (Cmds) are how Bubble Tea handles I/O operations and side effects. They're functions that run asynchronously and return messages when they complete.
+
+## What Are Commands?
+
+From [tea.go:363-370](/workspace/source/tea.go:363):
+
+```go
+// Cmd is an IO operation that returns a message when it's complete. If it's
+// nil it's considered a no-op. Use it for things like HTTP requests, timers,
+// saving and loading from disk, and so on.
+//
+// Note that there's almost never a reason to use a command to send a message
+// to another part of your program. That can almost always be done in the
+// update function.
+type Cmd func() Msg
+```
+
+<Note>
+  A command is simply a function that returns a message. That's it!
+  
+  Commands run **asynchronously** in goroutines, allowing your UI to remain responsive while I/O operations happen in the background.
+</Note>
+
+## Why Commands?
+
+Commands keep your `Update` function pure and synchronous:
+
+```go
+// ❌ Don't do this
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    resp, err := http.Get("https://api.example.com/data")  // Blocks!
+    // ...
+}
+
+// ✅ Do this
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    return m, fetchData()  // Returns immediately
+}
+
+func fetchData() tea.Cmd {
+    return func() tea.Msg {
+        resp, err := http.Get("https://api.example.com/data")
+        // Handle response, return message
+    }
+}
+```
+
+## Creating Commands
+
+### Basic Command
+
+```go
+func doSomething() tea.Cmd {
+    return func() tea.Msg {
+        // Perform I/O here
+        result := someSlowOperation()
+        
+        // Return a message
+        return resultMsg{result}
+    }
+}
+```
+
+### Command with Parameters
+
+```go
+func fetchUser(id int) tea.Cmd {
+    return func() tea.Msg {
+        user, err := api.GetUser(id)
+        if err != nil {
+            return errMsg{err}
+        }
+        return userLoadedMsg{user}
+    }
+}
+
+// Usage in Update
+return m, fetchUser(123)
+```
+
+### No-op Command
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    // Return nil when no command is needed
+    return m, nil
+}
+```
+
+## Built-in Commands
+
+### Quit
+
+From [tea.go:534-537](/workspace/source/tea.go:534):
+
+```go
+// Quit is a special command that tells the Bubble Tea program to exit.
+func Quit() Msg {
+    return QuitMsg{}
+}
+```
+
+**Usage:**
+
+```go
+case tea.KeyPressMsg:
+    if msg.String() == "q" {
+        return m, tea.Quit  // Exit the program
+    }
+```
+
+### Batch
+
+Run multiple commands concurrently with no ordering guarantees.
+
+From [commands.go:7-17](/workspace/source/commands.go:7):
+
+```go
+// Batch performs a bunch of commands concurrently with no ordering guarantees
+// about the results. Use a Batch to return several commands.
+func Batch(cmds ...Cmd) Cmd
+```
+
+**Example:**
+
+```go
+func (m model) Init() tea.Cmd {
+    return tea.Batch(
+        fetchUserData(),
+        fetchNotifications(),
+        startHeartbeat(),
+    )
+}
+```
+
+<Tip>
+  Use `Batch` when you have multiple independent operations that can run at the same time. Results come back in whatever order they complete.
+</Tip>
+
+### Sequence
+
+Run commands one at a time, in order.
+
+From [commands.go:23-27](/workspace/source/commands.go:23):
+
+```go
+// Sequence runs the given commands one at a time, in order. Contrast this with
+// Batch, which runs commands concurrently.
+func Sequence(cmds ...Cmd) Cmd
+```
+
+**Example:**
+
+```go
+func (m model) login() tea.Cmd {
+    return tea.Sequence(
+        authenticate(),      // Wait for auth
+        fetchUserProfile(),  // Then get profile
+        loadPreferences(),   // Then load prefs
+    )
+}
+```
+
+<Warning>
+  With `Sequence`, if any command returns `QuitMsg`, the remaining commands won't run.
+</Warning>
+
+### Tick
+
+Create a one-time timer.
+
+From [commands.go:116-164](/workspace/source/commands.go:116):
+
+```go
+// Tick produces a command at an interval independent of the system clock at
+// the given duration. That is, the timer begins precisely when invoked,
+// and runs for its entire duration.
+func Tick(d time.Duration, fn func(time.Time) Msg) Cmd
+```
+
+**Example:**
+
+```go
+type tickMsg time.Time
+
+func (m model) Init() tea.Cmd {
+    return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+        return tickMsg(t)
+    })
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tickMsg:
+        m.counter++
+        // Schedule next tick
+        return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+            return tickMsg(t)
+        })
+    }
+    return m, nil
+}
+```
+
+<Note>
+  **Beginner's note:** `Tick` sends a **single** message. To create a repeating timer, return another `Tick` command when you receive the tick message.
+</Note>
+
+### Every
+
+Create a timer that syncs with the system clock.
+
+From [commands.go:56-114](/workspace/source/commands.go:56):
+
+```go
+// Every is a command that ticks in sync with the system clock. So, if you
+// wanted to tick with the system clock every second, minute or hour you
+// could use this.
+func Every(duration time.Duration, fn func(time.Time) Msg) Cmd
+```
+
+**Example:**
+
+```go
+// Update the clock display on the minute
+func (m model) Init() tea.Cmd {
+    return tea.Every(time.Minute, func(t time.Time) tea.Msg {
+        return clockUpdateMsg(t)
+    })
+}
+```
+
+**Difference between Tick and Every:**
+
+<Tabs>
+  <Tab title="Tick">
+    Runs for the **full duration** from when called.
+    
+    ```
+    12:34:20 - Tick(1 minute) called
+    12:35:20 - Message sent (exactly 60 seconds later)
+    ```
+  </Tab>
+  
+  <Tab title="Every">
+    Syncs with the **system clock**.
+    
+    ```
+    12:34:20 - Every(1 minute) called
+    12:35:00 - Message sent (next minute mark)
+    ```
+  </Tab>
+</Tabs>
+
+## Common Command Patterns
+
+### HTTP Requests
+
+```go
+type dataLoadedMsg struct {
+    items []Item
+}
+
+type dataErrorMsg struct {
+    err error
+}
+
+func fetchData(url string) tea.Cmd {
+    return func() tea.Msg {
+        resp, err := http.Get(url)
+        if err != nil {
+            return dataErrorMsg{err}
+        }
+        defer resp.Body.Close()
+        
+        var items []Item
+        if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+            return dataErrorMsg{err}
+        }
+        
+        return dataLoadedMsg{items}
+    }
+}
+
+// Usage
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "r" {
+            m.loading = true
+            return m, fetchData("https://api.example.com/items")
+        }
+    
+    case dataLoadedMsg:
+        m.loading = false
+        m.items = msg.items
+        return m, nil
+    
+    case dataErrorMsg:
+        m.loading = false
+        m.err = msg.err
+        return m, nil
+    }
+    return m, nil
+}
+```
+
+### File I/O
+
+```go
+type fileLoadedMsg struct {
+    content string
+}
+
+func loadFile(path string) tea.Cmd {
+    return func() tea.Msg {
+        content, err := os.ReadFile(path)
+        if err != nil {
+            return errMsg{err}
+        }
+        return fileLoadedMsg{string(content)}
+    }
+}
+
+func saveFile(path, content string) tea.Cmd {
+    return func() tea.Msg {
+        if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+            return errMsg{err}
+        }
+        return fileSavedMsg{}
+    }
+}
+```
+
+### Subscriptions
+
+Long-running operations that send multiple messages:
+
+```go
+func listenForEvents(ch <-chan Event) tea.Cmd {
+    return func() tea.Msg {
+        // This blocks until an event arrives
+        return eventReceivedMsg{<-ch}
+    }
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case eventReceivedMsg:
+        m.handleEvent(msg.Event)
+        // Listen for the next event
+        return m, listenForEvents(m.eventCh)
+    }
+    return m, nil
+}
+```
+
+### Debouncing
+
+```go
+type debouncedSearchMsg struct{}
+
+func debounce(d time.Duration) tea.Cmd {
+    return tea.Tick(d, func(t time.Time) tea.Msg {
+        return debouncedSearchMsg{}
+    })
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        m.searchText = m.searchText + msg.String()
+        // Reset debounce timer on each keypress
+        return m, debounce(300 * time.Millisecond)
+    
+    case debouncedSearchMsg:
+        // User stopped typing - perform search
+        return m, performSearch(m.searchText)
+    }
+    return m, nil
+}
+```
+
+## Advanced Patterns
+
+### Cancellable Commands
+
+```go
+type model struct {
+    cancel context.CancelFunc
+}
+
+func longRunningTask(ctx context.Context) tea.Cmd {
+    return func() tea.Msg {
+        select {
+        case <-ctx.Done():
+            return taskCancelledMsg{}
+        case result := <-doWork():
+            return taskCompleteMsg{result}
+        }
+    }
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "enter" {
+            // Cancel any existing task
+            if m.cancel != nil {
+                m.cancel()
+            }
+            // Start new task
+            ctx, cancel := context.WithCancel(context.Background())
+            m.cancel = cancel
+            return m, longRunningTask(ctx)
+        }
+        if msg.String() == "esc" && m.cancel != nil {
+            // Cancel current task
+            m.cancel()
+            m.cancel = nil
+            return m, nil
+        }
+    }
+    return m, nil
+}
+```
+
+### Command Chaining
+
+```go
+func step1() tea.Cmd {
+    return func() tea.Msg {
+        // Do work
+        return step1CompleteMsg{}
+    }
+}
+
+func step2() tea.Cmd {
+    return func() tea.Msg {
+        // Do work
+        return step2CompleteMsg{}
+    }
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case step1CompleteMsg:
+        return m, step2()  // Start step 2
+    case step2CompleteMsg:
+        return m, step3()  // Start step 3
+    }
+    return m, nil
+}
+```
+
+### Retry Logic
+
+```go
+func fetchWithRetry(url string, attempts int) tea.Cmd {
+    return func() tea.Msg {
+        var lastErr error
+        for i := 0; i < attempts; i++ {
+            resp, err := http.Get(url)
+            if err == nil {
+                defer resp.Body.Close()
+                // Success!
+                return dataLoadedMsg{/* ... */}
+            }
+            lastErr = err
+            time.Sleep(time.Second * time.Duration(i+1))
+        }
+        return fetchFailedMsg{lastErr}
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep Commands Simple">
+    Each command should do one thing. Use `Batch` or `Sequence` to combine them.
+    
+    ```go
+    // Good
+    func fetchUser() tea.Cmd { /* ... */ }
+    func fetchPosts() tea.Cmd { /* ... */ }
+    
+    func (m model) Init() tea.Cmd {
+        return tea.Batch(fetchUser(), fetchPosts())
+    }
+    
+    // Bad - too much in one command
+    func fetchEverything() tea.Cmd {
+        return func() tea.Msg {
+            user := /* fetch user */
+            posts := /* fetch posts */
+            comments := /* fetch comments */
+            // ...
+        }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Always Return a Message">
+    Commands should always return a message, even for errors.
+    
+    ```go
+    func doWork() tea.Cmd {
+        return func() tea.Msg {
+            result, err := work()
+            if err != nil {
+                return errMsg{err}  // Don't return nil!
+            }
+            return successMsg{result}
+        }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Don't Block Indefinitely">
+    Long-running commands should check for cancellation.
+    
+    ```go
+    func subscribe(ctx context.Context, ch <-chan Event) tea.Cmd {
+        return func() tea.Msg {
+            select {
+            case <-ctx.Done():
+                return subscriptionEndedMsg{}
+            case event := <-ch:
+                return eventMsg{event}
+            }
+        }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Avoid State in Commands">
+    Commands shouldn't hold state - pass everything as parameters.
+    
+    ```go
+    // Good
+    func fetchUser(id int) tea.Cmd {
+        return func() tea.Msg {
+            user, _ := api.GetUser(id)
+            return userMsg{user}
+        }
+    }
+    
+    // Bad - command holds state
+    type userFetcher struct {
+        id int
+    }
+    func (f userFetcher) Cmd() tea.Cmd { /* ... */ }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Debugging Commands
+
+Commands run asynchronously, which can make them tricky to debug:
+
+```go
+func fetchData() tea.Cmd {
+    return func() tea.Msg {
+        log.Println("Starting fetch...")
+        
+        // Be careful with panics!
+        defer func() {
+            if r := recover(); r != nil {
+                log.Printf("Command panicked: %v", r)
+            }
+        }()
+        
+        result, err := doWork()
+        if err != nil {
+            log.Printf("Fetch error: %v", err)
+            return errMsg{err}
+        }
+        
+        log.Printf("Fetch complete: %+v", result)
+        return dataMsg{result}
+    }
+}
+```
+
+<Tip>
+  Use `tea.LogToFile()` to debug commands:
+  
+  ```go
+  if len(os.Getenv("DEBUG")) > 0 {
+      f, err := tea.LogToFile("debug.log", "debug")
+      if err != nil {
+          fmt.Println("fatal:", err)
+          os.Exit(1)
+      }
+      defer f.Close()
+  }
+  ```
+  
+  Then run with: `DEBUG=1 go run main.go`
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Messages" icon="envelope" href="/concepts/messages">
+    Learn about the messages that commands return
+  </Card>
+  
+  <Card title="Model" icon="database" href="/concepts/model">
+    See how commands fit into the update cycle
+  </Card>
+  
+  <Card title="Examples" icon="code" href="/examples/overview">
+    Explore real-world command usage
+  </Card>
+</CardGroup>

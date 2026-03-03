@@ -1,0 +1,373 @@
+---
+title: Mouse Events
+description: Handle mouse input and create interactive interfaces
+---
+
+Bubble Tea supports full mouse interaction including clicks, drags, and motion events. This guide shows you how to handle mouse input in your applications.
+
+## Basic Mouse Events
+
+The simplest mouse example from `examples/mouse/main.go` shows how to capture mouse coordinates:
+
+```go
+package main
+
+import (
+	"log"
+
+	tea "charm.land/bubbletea/v2"
+)
+
+type model struct{}
+
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		if s := msg.String(); s == "ctrl+c" || s == "q" || s == "esc" {
+			return m, tea.Quit
+		}
+
+	case tea.MouseMsg:
+		mouse := msg.Mouse()
+		return m, tea.Printf("(X: %d, Y: %d) %s", mouse.X, mouse.Y, mouse)
+	}
+
+	return m, nil
+}
+
+func (m model) View() tea.View {
+	v := tea.NewView("Do mouse stuff. When you're done press q to quit.\n")
+	v.MouseMode = tea.MouseModeAllMotion
+	return v
+}
+
+func main() {
+	p := tea.NewProgram(model{})
+	if _, err := p.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+## Key Concepts
+
+### Enabling Mouse Mode
+
+Set the mouse mode in your `View()` method:
+
+```go
+func (m model) View() tea.View {
+	v := tea.NewView("...")
+	v.MouseMode = tea.MouseModeAllMotion
+	return v
+}
+```
+
+<Note>
+Available mouse modes:
+- `tea.MouseModeNone` - Disable mouse events
+- `tea.MouseModeClick` - Only click events
+- `tea.MouseModeMotion` - Clicks and motion when button pressed
+- `tea.MouseModeAllMotion` - All mouse events including hover
+</Note>
+
+### Handling Mouse Messages
+
+Mouse events are delivered as `tea.MouseMsg`:
+
+```go
+case tea.MouseMsg:
+	mouse := msg.Mouse()
+	x := mouse.X
+	y := mouse.Y
+	button := mouse.Button
+```
+
+### Mouse Message Types
+
+Check the specific mouse event type:
+
+```go
+switch msg := msg.(type) {
+case tea.MouseClickMsg:
+	// Button was pressed
+	if mouse.Button == tea.MouseLeft {
+		// Handle left click
+	}
+
+case tea.MouseMotionMsg:
+	// Mouse moved with button pressed (drag)
+	
+case tea.MouseReleaseMsg:
+	// Button was released
+}
+```
+
+## Advanced: Clickable Interface
+
+The `examples/clickable` directory contains a sophisticated example with draggable dialog boxes. Here are the key patterns:
+
+### Layer-Based Hit Detection
+
+Use Lip Gloss layers to detect which element was clicked:
+
+```go
+type LayerHitMsg struct {
+	ID    string
+	Mouse tea.MouseMsg
+}
+
+func (m model) View() tea.View {
+	var v tea.View
+	
+	// Create layers for clickable elements
+	root := lipgloss.NewLayer(bg).ID("bg")
+	for i, d := range m.dialogs {
+		root.AddLayers(d.view().Z(i + 1))
+	}
+
+	comp := lipgloss.NewCompositor(root)
+
+	// Set up mouse handling
+	v.MouseMode = tea.MouseModeAllMotion
+	v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
+		return func() tea.Msg {
+			mouse := msg.Mouse()
+			x, y := mouse.X, mouse.Y
+			if id := comp.Hit(x, y).ID(); id != "" {
+				return LayerHitMsg{
+					ID:    id,
+					Mouse: msg,
+				}
+			}
+			return nil
+		}
+	}
+	v.SetContent(comp.Render())
+
+	return v
+}
+```
+
+### Drag and Drop Implementation
+
+Track mouse state for drag operations:
+
+```go
+type model struct {
+	width, height    int
+	dialogs          []dialog
+	mouseDown        bool
+	pressID          string
+	dragID           string
+	dragOffsetX      int
+	dragOffsetY      int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case LayerHitMsg:
+		mouse := msg.Mouse.Mouse()
+
+		switch msg.Mouse.(type) {
+		case tea.MouseClickMsg:
+			if mouse.Button != tea.MouseLeft {
+				break
+			}
+
+			// Initial press
+			if !m.mouseDown {
+				m.mouseDown = true
+				m.pressID = msg.ID
+
+				// Find clicked dialog and init drag
+				for i, d := range m.dialogs {
+					if d.id != msg.ID {
+						continue
+					}
+
+					m.dragID = msg.ID
+					m.dragOffsetX = mouse.X - d.x
+					m.dragOffsetY = mouse.Y - d.y
+					break
+				}
+			}
+
+		case tea.MouseMotionMsg:
+			// Dragging
+			if m.mouseDown && m.dragID != "" {
+				for i := range m.dialogs {
+					d := &m.dialogs[i]
+					if d.id != m.dragID {
+						continue
+					}
+
+					// Move dialog with cursor
+					d.x = clamp(mouse.X-(m.dragOffsetX), 0, m.width-lipgloss.Width(d.windowView()))
+					d.y = clamp(mouse.Y-(m.dragOffsetY), 0, m.height-lipgloss.Height(d.windowView()))
+					break
+				}
+			}
+
+		case tea.MouseReleaseMsg:
+			// Complete click if press and release on same element
+			if m.pressID == msg.ID {
+				// Handle click
+			}
+
+			m.mouseDown = false
+			m.dragID = ""
+			m.pressID = ""
+		}
+	}
+
+	return m, nil
+}
+```
+
+### Hover States
+
+Track which element is being hovered:
+
+```go
+case tea.MouseMotionMsg:
+	// Update hover state
+	for i := range m.dialogs {
+		d := &m.dialogs[i]
+		d.hovering = false
+		d.hoveringButton = false
+
+		if d.id == msg.ID {
+			d.hovering = true
+			continue
+		}
+		if d.buttonID == msg.ID {
+			d.hovering = true
+			d.hoveringButton = true
+			continue
+		}
+	}
+```
+
+### Z-Index Management
+
+Bring clicked elements to front:
+
+```go
+// Move clicked dialog to end of slice (highest z-index)
+m.dialogs = m.removeDialog(i)
+m.dialogs = append(m.dialogs, d)
+```
+
+## Mouse Button Types
+
+```go
+switch mouse.Button {
+case tea.MouseLeft:
+	// Left button
+case tea.MouseRight:
+	// Right button
+case tea.MouseMiddle:
+	// Middle button
+case tea.MouseWheelUp:
+	// Scroll up
+case tea.MouseWheelDown:
+	// Scroll down
+}
+```
+
+## Common Patterns
+
+### Click Detection
+
+```go
+type model struct {
+	pressID   string
+	mouseDown bool
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		m.mouseDown = true
+		m.pressID = getIDAtPosition(msg.Mouse().X, msg.Mouse().Y)
+	
+	case tea.MouseReleaseMsg:
+		releaseID := getIDAtPosition(msg.Mouse().X, msg.Mouse().Y)
+		if m.mouseDown && m.pressID == releaseID && releaseID != "" {
+			// Valid click: pressed and released on same element
+			m.handleClick(releaseID)
+		}
+		m.mouseDown = false
+		m.pressID = ""
+	}
+	return m, nil
+}
+```
+
+### Region-Based Detection
+
+```go
+type clickableRegion struct {
+	x, y, width, height int
+	id                  string
+}
+
+func (r clickableRegion) contains(x, y int) bool {
+	return x >= r.x && x < r.x+r.width &&
+	       y >= r.y && y < r.y+r.height
+}
+
+func (m model) getRegionAt(x, y int) string {
+	for _, region := range m.regions {
+		if region.contains(x, y) {
+			return region.id
+		}
+	}
+	return ""
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Layers" icon="layer-group">
+    Use Lip Gloss layers and compositor for accurate hit detection
+  </Card>
+  <Card title="Track State" icon="database">
+    Maintain mouseDown state to distinguish clicks from releases
+  </Card>
+  <Card title="Visual Feedback" icon="eye">
+    Show hover and active states for better UX
+  </Card>
+  <Card title="Bounds Checking" icon="border-all">
+    Clamp positions when dragging to keep elements on screen
+  </Card>
+</CardGroup>
+
+## Running the Examples
+
+```bash
+# Basic mouse events
+cd examples/mouse
+go run .
+
+# Advanced clickable interface
+cd examples/clickable
+go run .
+```
+
+The clickable example lets you:
+- Click background to spawn dialog boxes
+- Drag dialogs to move them
+- Click buttons to close dialogs
+- See hover effects
+
+## Source Code
+
+- [examples/mouse](https://github.com/charmbracelet/bubbletea/tree/main/examples/mouse) - Basic mouse events
+- [examples/clickable](https://github.com/charmbracelet/bubbletea/tree/main/examples/clickable) - Advanced drag-and-drop interface

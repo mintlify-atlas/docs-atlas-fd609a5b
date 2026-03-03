@@ -1,0 +1,323 @@
+---
+title: Keyboard Messages
+description: Handle keyboard input events in Bubble Tea applications
+---
+
+## Overview
+
+Keyboard messages represent key press and release events in your terminal application. Bubble Tea provides comprehensive keyboard event handling with support for special keys, modifiers, and the Kitty keyboard protocol.
+
+## Message Types
+
+### KeyPressMsg
+
+Represents a key press event.
+
+```go
+type KeyPressMsg Key
+```
+
+<ParamField name="KeyPressMsg" type="Key">
+  A key press event containing information about the key pressed, modifiers, and additional metadata.
+</ParamField>
+
+**Methods:**
+
+- `String() string` - Returns the textual representation of the key
+- `Keystroke() string` - Returns the keystroke representation (e.g., "ctrl+shift+a")
+- `Key() Key` - Returns the underlying Key struct
+
+### KeyReleaseMsg
+
+Represents a key release event.
+
+```go
+type KeyReleaseMsg Key
+```
+
+<ParamField name="KeyReleaseMsg" type="Key">
+  A key release event with the same structure as KeyPressMsg.
+</ParamField>
+
+**Methods:**
+
+- `String() string` - Returns the textual representation of the key
+- `Keystroke() string` - Returns the keystroke representation
+- `Key() Key` - Returns the underlying Key struct
+
+### Key
+
+The underlying key event structure containing detailed information about the key press or release.
+
+<ResponseField name="Text" type="string">
+  The actual characters received. Non-empty for printable characters like 'a', 'A', '1', '!', etc.
+</ResponseField>
+
+<ResponseField name="Code" type="rune">
+  The key code pressed. This is usually a special key like KeyTab, KeyEnter, KeyF1, or a printable character like 'a'.
+</ResponseField>
+
+<ResponseField name="Mod" type="KeyMod">
+  Modifier keys pressed, like ModCtrl, ModAlt, ModShift, etc.
+</ResponseField>
+
+<ResponseField name="ShiftedCode" type="rune">
+  The actual shifted key pressed by the user. For example, if the user presses shift+a, ShiftedCode will be 'A' and Code will be 'a'. Only available with Kitty Keyboard Protocol or Windows Console API.
+</ResponseField>
+
+<ResponseField name="BaseCode" type="rune">
+  The key according to the standard PC-101 key layout. For international keyboards, this is the key that would be pressed on a US PC-101 layout. Only available with Kitty Keyboard Protocol or Windows Console API.
+</ResponseField>
+
+<ResponseField name="IsRepeat" type="bool">
+  Indicates whether the key is being held down and sending events repeatedly. Only available with Kitty Keyboard Protocol or Windows Console API.
+</ResponseField>
+
+## Key Constants
+
+### Special Keys
+
+```go
+const (
+    KeyUp     // Arrow up
+    KeyDown   // Arrow down
+    KeyRight  // Arrow right
+    KeyLeft   // Arrow left
+    KeyBegin  // Begin key
+    KeyFind   // Find key
+    KeyInsert // Insert key
+    KeyDelete // Delete key
+    KeySelect // Select key
+    KeyPgUp   // Page up
+    KeyPgDown // Page down
+    KeyHome   // Home key
+    KeyEnd    // End key
+)
+```
+
+### Function Keys
+
+```go
+const (
+    KeyF1, KeyF2, KeyF3, KeyF4, KeyF5, KeyF6
+    KeyF7, KeyF8, KeyF9, KeyF10, KeyF11, KeyF12
+    // ... up to KeyF63
+)
+```
+
+### Keypad Keys
+
+```go
+const (
+    KeyKpEnter    // Keypad enter
+    KeyKpEqual    // Keypad equal
+    KeyKpMultiply // Keypad multiply
+    KeyKpPlus     // Keypad plus
+    KeyKpMinus    // Keypad minus
+    KeyKpDecimal  // Keypad decimal
+    KeyKpDivide   // Keypad divide
+    KeyKp0        // Keypad 0
+    // ... through KeyKp9
+)
+```
+
+### Control Keys
+
+```go
+const (
+    KeyBackspace // Backspace
+    KeyTab       // Tab
+    KeyEnter     // Enter
+    KeyReturn    // Return (alias for Enter)
+    KeyEscape    // Escape
+    KeyEsc       // Esc (alias for Escape)
+    KeySpace     // Space
+)
+```
+
+### Lock and Media Keys
+
+```go
+const (
+    KeyCapsLock    // Caps lock
+    KeyScrollLock  // Scroll lock
+    KeyNumLock     // Num lock
+    KeyPrintScreen // Print screen
+    KeyPause       // Pause
+    KeyMenu        // Menu key
+
+    KeyMediaPlay      // Media play
+    KeyMediaPause     // Media pause
+    KeyMediaPlayPause // Media play/pause toggle
+    KeyMediaStop      // Media stop
+    KeyMediaNext      // Media next track
+    KeyMediaPrev      // Media previous track
+    KeyLowerVol       // Lower volume
+    KeyRaiseVol       // Raise volume
+    KeyMute           // Mute
+)
+```
+
+### Modifier Keys
+
+```go
+const (
+    KeyLeftShift, KeyRightShift   // Shift keys
+    KeyLeftAlt, KeyRightAlt       // Alt keys
+    KeyLeftCtrl, KeyRightCtrl     // Control keys
+    KeyLeftSuper, KeyRightSuper   // Super/Windows/Command keys
+    KeyLeftMeta, KeyRightMeta     // Meta keys
+    KeyLeftHyper, KeyRightHyper   // Hyper keys
+)
+```
+
+## Key Modifiers (KeyMod)
+
+```go
+const (
+    ModShift      // Shift modifier
+    ModAlt        // Alt modifier
+    ModCtrl       // Control modifier
+    ModMeta       // Meta modifier
+    ModHyper      // Hyper modifier
+    ModSuper      // Super/Windows/Command modifier
+    
+    // Lock states
+    ModCapsLock   // Caps lock state
+    ModNumLock    // Num lock state
+    ModScrollLock // Scroll lock state
+)
+```
+
+## Usage Examples
+
+### Basic Key Matching (String-based)
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "enter":
+            return m, m.submit()
+        case "a":
+            return m, m.addItem()
+        case "ctrl+c", "q":
+            return m, tea.Quit
+        }
+    }
+    return m, nil
+}
+```
+
+### Type-safe Key Matching
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        key := msg.Key()
+        switch key.Code {
+        case tea.KeyEnter:
+            return m, m.submit()
+        case tea.KeyUp:
+            m.cursor--
+        case tea.KeyDown:
+            m.cursor++
+        default:
+            // Handle text input
+            if key.Text != "" {
+                m.input += key.Text
+            }
+        }
+    }
+    return m, nil
+}
+```
+
+### Checking Modifiers
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        key := msg.Key()
+        
+        // Check for Ctrl+C
+        if key.Code == 'c' && key.Mod == tea.ModCtrl {
+            return m, tea.Quit
+        }
+        
+        // Check for Ctrl+Shift+S
+        if key.Code == 's' && key.Mod == tea.ModCtrl|tea.ModShift {
+            return m, m.saveAs()
+        }
+    }
+    return m, nil
+}
+```
+
+### Using Keystroke Method
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        // Modifiers are always in order: ctrl, alt, shift, meta, hyper, super
+        switch msg.Keystroke() {
+        case "ctrl+shift+alt+a":
+            return m, m.specialAction()
+        case "ctrl+s":
+            return m, m.save()
+        }
+    }
+    return m, nil
+}
+```
+
+### Handling Key Releases
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "space" {
+            m.spacePressed = true
+        }
+    case tea.KeyReleaseMsg:
+        if msg.String() == "space" {
+            m.spacePressed = false
+        }
+    }
+    return m, nil
+}
+```
+
+### Handling Repeated Keys
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        key := msg.Key()
+        if key.Code == tea.KeyRight {
+            if key.IsRepeat {
+                // Key is being held down
+                m.position += 10 // Move faster
+            } else {
+                // Single key press
+                m.position += 1
+            }
+        }
+    }
+    return m, nil
+}
+```
+
+## Notes
+
+- The `Text` field is empty for special keys like KeyEnter, KeyTab, and for key combinations with modifiers
+- `Text` is only populated for printable characters (both shifted and unshifted)
+- Modifiers in keystroke strings are always in a specific order: ctrl, alt, shift, meta, hyper, super
+- `ShiftedCode`, `BaseCode`, and `IsRepeat` are only available when using the Kitty Keyboard Protocol or Windows Console API
+- For international keyboards, `BaseCode` provides the equivalent US PC-101 layout key

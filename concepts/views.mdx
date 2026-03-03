@@ -1,0 +1,717 @@
+---
+title: 'Views'
+description: 'Rendering your application UI in Bubble Tea'
+---
+
+Views are how you render your application's user interface. They declare **what** should be displayed, and Bubble Tea handles **how** to render it efficiently.
+
+## The View Type
+
+From [tea.go:81-189](/workspace/source/tea.go:81):
+
+```go
+// View represents a terminal view that can be composed of multiple layers.
+// It can also contain a cursor that will be rendered on top of the layers.
+type View struct {
+    // Content is the screen content of the view. It holds styled strings that
+    // will be rendered to the terminal when the view is rendered.
+    Content string
+    
+    // OnMouse is an optional mouse message handler
+    OnMouse func(msg MouseMsg) Cmd
+    
+    // Cursor represents the cursor position, style, and visibility
+    Cursor *Cursor
+    
+    // BackgroundColor sets the terminal background color
+    BackgroundColor color.Color
+    
+    // ForegroundColor sets the terminal foreground color
+    ForegroundColor color.Color
+    
+    // WindowTitle sets the terminal window title
+    WindowTitle string
+    
+    // ProgressBar shows a progress bar in the terminal
+    ProgressBar *ProgressBar
+    
+    // AltScreen puts the program in alternate screen buffer (full window mode)
+    AltScreen bool
+    
+    // ReportFocus enables reporting when the terminal gains and loses focus
+    ReportFocus bool
+    
+    // DisableBracketedPasteMode disables bracketed paste mode
+    DisableBracketedPasteMode bool
+    
+    // MouseMode sets the mouse mode
+    MouseMode MouseMode
+    
+    // KeyboardEnhancements describes keyboard enhancement features to request
+    KeyboardEnhancements KeyboardEnhancements
+}
+```
+
+## Creating Views
+
+### NewView
+
+The simplest way to create a view:
+
+From [tea.go:67-79](/workspace/source/tea.go:67):
+
+```go
+// NewView is a helper function to create a new [View] with the given styled
+// string.
+func NewView(s string) View
+```
+
+**Example:**
+
+```go
+func (m model) View() tea.View {
+    return tea.NewView("Hello, World!")
+}
+```
+
+### Manual Construction
+
+For more control, create the View directly:
+
+```go
+func (m model) View() tea.View {
+    var v tea.View
+    v.Content = m.render()
+    v.WindowTitle = "My App"
+    v.MouseMode = tea.MouseModeAllMotion
+    return v
+}
+```
+
+### SetContent Method
+
+From [tea.go:249-261](/workspace/source/tea.go:249):
+
+```go
+// SetContent is a helper method to set the content of a [View]
+func (v *View) SetContent(s string)
+```
+
+**Example:**
+
+```go
+func (m model) View() tea.View {
+    var v tea.View
+    v.SetContent("Hello!")
+    return v
+}
+```
+
+## Content Rendering
+
+### Basic Content
+
+Content is a string with ANSI escape codes for styling:
+
+```go
+func (m model) View() tea.View {
+    s := "Counter: " + strconv.Itoa(m.count) + "\n"
+    s += "Press 'q' to quit\n"
+    return tea.NewView(s)
+}
+```
+
+### Using Lip Gloss for Styling
+
+Lip Gloss is the recommended way to style terminal output:
+
+```go
+import "github.com/charmbracelet/lipgloss"
+
+var (
+    titleStyle = lipgloss.NewStyle().
+        Bold(true).
+        Foreground(lipgloss.Color("#FAFAFA")).
+        Background(lipgloss.Color("#7D56F4")).
+        Padding(0, 1)
+    
+    textStyle = lipgloss.NewStyle().
+        Foreground(lipgloss.Color("#999999"))
+)
+
+func (m model) View() tea.View {
+    title := titleStyle.Render("My Application")
+    text := textStyle.Render("Welcome to Bubble Tea!")
+    
+    content := lipgloss.JoinVertical(lipgloss.Left,
+        title,
+        "",
+        text,
+    )
+    
+    return tea.NewView(content)
+}
+```
+
+### Multi-line Content
+
+Use string concatenation or `strings.Builder`:
+
+<Tabs>
+  <Tab title="String Concatenation">
+    ```go
+    func (m model) View() tea.View {
+        s := ""
+        s += "Line 1\n"
+        s += "Line 2\n"
+        s += "Line 3\n"
+        return tea.NewView(s)
+    }
+    ```
+  </Tab>
+  
+  <Tab title="strings.Builder">
+    ```go
+    func (m model) View() tea.View {
+        var b strings.Builder
+        b.WriteString("Line 1\n")
+        b.WriteString("Line 2\n")
+        b.WriteString("Line 3\n")
+        return tea.NewView(b.String())
+    }
+    ```
+  </Tab>
+  
+  <Tab title="fmt.Sprintf">
+    ```go
+    func (m model) View() tea.View {
+        s := fmt.Sprintf(`
+Line 1
+Line 2
+Line 3
+`)
+        return tea.NewView(s)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## View Features
+
+### Window Title
+
+Set the terminal window title:
+
+```go
+func (m model) View() tea.View {
+    v := tea.NewView(m.render())
+    v.WindowTitle = fmt.Sprintf("MyApp - %s", m.currentFile)
+    return v
+}
+```
+
+See [tutorials/basics/main.go:79](/workspace/source/tutorials/basics/main.go:79) for an example.
+
+### Alternate Screen
+
+Switch to full-screen mode:
+
+```go
+func (m model) View() tea.View {
+    v := tea.NewView(m.render())
+    v.AltScreen = true  // Full window mode
+    return v
+}
+```
+
+<Note>
+  **Alternate Screen** (AltScreen) is like what you see in vim or less - when you exit, the terminal returns to its previous state.
+</Note>
+
+### Cursor
+
+From [tea.go:336-361](/workspace/source/tea.go:336):
+
+```go
+// Cursor represents a cursor on the terminal screen.
+type Cursor struct {
+    Position         // X, Y coordinates
+    Color color.Color
+    Shape CursorShape
+    Blink bool
+}
+
+func NewCursor(x, y int) *Cursor
+```
+
+**Example:**
+
+```go
+func (m model) View() tea.View {
+    v := tea.NewView(m.render())
+    
+    // Show cursor at input position
+    v.Cursor = tea.NewCursor(m.cursorX, m.cursorY)
+    v.Cursor.Shape = tea.CursorBar
+    v.Cursor.Blink = true
+    
+    return v
+}
+```
+
+**Cursor Shapes:**
+
+- `CursorBlock` - Block cursor (█)
+- `CursorUnderline` - Underline cursor (_)
+- `CursorBar` - Bar cursor (|)
+
+### Mouse Support
+
+From [tea.go:263-286](/workspace/source/tea.go:263):
+
+```go
+type MouseMode int
+
+const (
+    MouseModeNone        // No mouse events
+    MouseModeCellMotion  // Click, release, wheel, and drag events
+    MouseModeAllMotion   // All mouse events including movement
+)
+```
+
+**Enable mouse support:**
+
+```go
+func (m model) View() tea.View {
+    v := tea.NewView(m.render())
+    v.MouseMode = tea.MouseModeAllMotion
+    return v
+}
+```
+
+**Handle mouse events:**
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.MouseClickMsg:
+        mouse := msg.Mouse()
+        m.handleClick(mouse.X, mouse.Y)
+    }
+    return m, nil
+}
+```
+
+### OnMouse Handler
+
+Handle mouse events based on view content:
+
+From [tea.go:97-125](/workspace/source/tea.go:97):
+
+```go
+func (m model) View() tea.View {
+    content := "Click [here] to continue"
+    v := tea.NewView(content)
+    
+    v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
+        mouse := msg.Mouse()
+        
+        // Check if click is on "here"
+        start := strings.Index(content, "[here]")
+        end := start + 6
+        
+        if mouse.Y == 0 && mouse.X >= start && mouse.X < end {
+            return func() tea.Msg {
+                return clickedHereMsg{}
+            }
+        }
+        return nil
+    }
+    
+    return v
+}
+```
+
+### Progress Bar
+
+From [tea.go:311-334](/workspace/source/tea.go:311):
+
+```go
+type ProgressBar struct {
+    State ProgressBarState
+    Value int  // 0-100
+}
+
+const (
+    ProgressBarNone
+    ProgressBarDefault
+    ProgressBarError
+    ProgressBarIndeterminate
+    ProgressBarWarning
+)
+
+func NewProgressBar(state ProgressBarState, value int) *ProgressBar
+```
+
+**Example:**
+
+```go
+func (m model) View() tea.View {
+    v := tea.NewView(m.render())
+    
+    // Show download progress
+    v.ProgressBar = tea.NewProgressBar(
+        tea.ProgressBarDefault,
+        m.downloadPercent,
+    )
+    
+    return v
+}
+```
+
+<Note>
+  Progress bar support depends on the terminal. Windows Terminal and some other modern terminals support this feature.
+</Note>
+
+### Terminal Colors
+
+Set default terminal colors:
+
+```go
+import "image/color"
+
+func (m model) View() tea.View {
+    v := tea.NewView(m.render())
+    v.BackgroundColor = color.RGBA{0x1a, 0x1b, 0x26, 0xff}
+    v.ForegroundColor = color.RGBA{0xc0, 0xca, 0xf5, 0xff}
+    return v
+}
+```
+
+### Keyboard Enhancements
+
+Request advanced keyboard features:
+
+From [tea.go:195-247](/workspace/source/tea.go:195):
+
+```go
+type KeyboardEnhancements struct {
+    // ReportEventTypes requests key repeat and release events
+    ReportEventTypes bool
+}
+```
+
+**Example:**
+
+```go
+func (m model) View() tea.View {
+    v := tea.NewView(m.render())
+    
+    // Request key release events
+    v.KeyboardEnhancements.ReportEventTypes = true
+    
+    return v
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyboardEnhancementsMsg:
+        if msg.ReportEventTypes {
+            // We can now receive KeyReleaseMsg!
+        }
+    
+    case tea.KeyReleaseMsg:
+        // Handle key release
+    }
+    return m, nil
+}
+```
+
+## View Patterns
+
+### Responsive Layout
+
+Adjust to terminal size:
+
+```go
+func (m model) View() tea.View {
+    if m.width < 80 {
+        // Narrow layout
+        return tea.NewView(m.renderNarrow())
+    }
+    // Wide layout
+    return tea.NewView(m.renderWide())
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    }
+    return m, nil
+}
+```
+
+### Component Composition
+
+```go
+type model struct {
+    header headerComponent
+    body   bodyComponent
+    footer footerComponent
+}
+
+func (m model) View() tea.View {
+    var b strings.Builder
+    
+    // Compose views from components
+    b.WriteString(m.header.View())
+    b.WriteString("\n")
+    b.WriteString(m.body.View())
+    b.WriteString("\n")
+    b.WriteString(m.footer.View())
+    
+    return tea.NewView(b.String())
+}
+```
+
+### Conditional Rendering
+
+```go
+func (m model) View() tea.View {
+    switch m.state {
+    case stateLoading:
+        return tea.NewView(m.renderLoading())
+    case stateError:
+        return tea.NewView(m.renderError())
+    case stateSuccess:
+        return tea.NewView(m.renderContent())
+    default:
+        return tea.NewView("")
+    }
+}
+```
+
+### With Lip Gloss Layout
+
+```go
+import "github.com/charmbracelet/lipgloss"
+
+func (m model) View() tea.View {
+    // Create styled boxes
+    leftBox := lipgloss.NewStyle().
+        Border(lipgloss.NormalBorder()).
+        Width(m.width / 2).
+        Render(m.leftContent)
+    
+    rightBox := lipgloss.NewStyle().
+        Border(lipgloss.NormalBorder()).
+        Width(m.width / 2).
+        Render(m.rightContent)
+    
+    // Combine horizontally
+    content := lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
+    
+    return tea.NewView(content)
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Views Are Pure Functions">
+    Never modify the model in View. Only read from it.
+    
+    ```go
+    // ❌ Bad
+    func (m model) View() tea.View {
+        m.viewCount++  // Don't mutate!
+        return tea.NewView(m.render())
+    }
+    
+    // ✅ Good
+    func (m model) View() tea.View {
+        return tea.NewView(m.render())
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Don't Worry About Performance">
+    Bubble Tea renders efficiently. Focus on clear code.
+    
+    ```go
+    // This is fine - Bubble Tea only redraws what changed
+    func (m model) View() tea.View {
+        s := ""
+        for i := 0; i < 1000; i++ {
+            s += fmt.Sprintf("Line %d\n", i)
+        }
+        return tea.NewView(s)
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Helper Functions">
+    Break complex views into smaller functions.
+    
+    ```go
+    func (m model) View() tea.View {
+        return tea.NewView(lipgloss.JoinVertical(lipgloss.Left,
+            m.renderHeader(),
+            m.renderBody(),
+            m.renderFooter(),
+        ))
+    }
+    
+    func (m model) renderHeader() string { /* ... */ }
+    func (m model) renderBody() string { /* ... */ }
+    func (m model) renderFooter() string { /* ... */ }
+    ```
+  </Accordion>
+  
+  <Accordion title="Cache Expensive Renders">
+    If rendering is expensive, cache the result in your model.
+    
+    ```go
+    type model struct {
+        data       []Item
+        dataHash   uint64
+        cachedView string
+    }
+    
+    func (m model) View() tea.View {
+        hash := hashData(m.data)
+        if hash != m.dataHash {
+            m.dataHash = hash
+            m.cachedView = m.expensiveRender()
+        }
+        return tea.NewView(m.cachedView)
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Complete Example
+
+Here's a full example showing various view features:
+
+```go
+package main
+
+import (
+    "fmt"
+    "strings"
+    
+    tea "charm.land/bubbletea/v2"
+    "github.com/charmbracelet/lipgloss"
+)
+
+type model struct {
+    width      int
+    height     int
+    inputText  string
+    cursorPos  int
+}
+
+var (
+    titleStyle = lipgloss.NewStyle().
+        Bold(true).
+        Background(lipgloss.Color("#7D56F4")).
+        Padding(0, 1)
+    
+    inputStyle = lipgloss.NewStyle().
+        Border(lipgloss.RoundedBorder()).
+        BorderForeground(lipgloss.Color("#7D56F4"))
+)
+
+func (m model) Init() tea.Cmd {
+    return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "ctrl+c":
+            return m, tea.Quit
+        case "backspace":
+            if len(m.inputText) > 0 {
+                m.inputText = m.inputText[:len(m.inputText)-1]
+                m.cursorPos--
+            }
+        default:
+            if len(msg.String()) == 1 {
+                m.inputText += msg.String()
+                m.cursorPos++
+            }
+        }
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    var v tea.View
+    
+    // Build content
+    title := titleStyle.Render("Text Input Demo")
+    input := inputStyle.Render(m.inputText + "_")
+    help := "Type to input text. Press ctrl+c to quit."
+    
+    content := lipgloss.JoinVertical(lipgloss.Left,
+        title,
+        "",
+        input,
+        "",
+        help,
+    )
+    
+    // Center the content
+    if m.width > 0 && m.height > 0 {
+        content = lipgloss.Place(m.width, m.height,
+            lipgloss.Center, lipgloss.Center,
+            content,
+        )
+    }
+    
+    v.SetContent(content)
+    
+    // Set view options
+    v.WindowTitle = "Bubble Tea Demo"
+    v.MouseMode = tea.MouseModeCellMotion
+    
+    // Show cursor at input position
+    if len(m.inputText) > 0 {
+        v.Cursor = tea.NewCursor(m.cursorPos, 2)
+    }
+    
+    return v
+}
+
+func main() {
+    p := tea.NewProgram(model{})
+    if _, err := p.Run(); err != nil {
+        fmt.Printf("Error: %v", err)
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Lip Gloss" icon="paintbrush" href="https://github.com/charmbracelet/lipgloss">
+    Learn to style your terminal UI with Lip Gloss
+  </Card>
+  
+  <Card title="Bubbles" icon="cube" href="https://github.com/charmbracelet/bubbles">
+    Use pre-built UI components
+  </Card>
+  
+  <Card title="Examples" icon="code" href="/examples/overview">
+    See real-world view implementations
+  </Card>
+</CardGroup>

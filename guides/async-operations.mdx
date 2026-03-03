@@ -1,0 +1,548 @@
+---
+title: Async Operations
+description: Handle I/O, network requests, and concurrent operations in Bubble Tea
+---
+
+## Overview
+
+Bubble Tea follows The Elm Architecture, which keeps your Update function pure by handling all I/O through **commands**. Commands are functions that perform asynchronous operations and return messages to update your model.
+
+## Commands (tea.Cmd)
+
+A command is a function that returns a `Msg`:
+
+```go
+type Cmd func() Msg
+```
+
+Commands are returned from `Init` and `Update` to perform I/O:
+
+```go examples/simple/main.go:37-40
+func (m model) Init() tea.Cmd {
+    return tick
+}
+```
+
+### Creating Commands
+
+Define a command function that performs work and returns a message:
+
+```go examples/simple/main.go:72-78
+type tickMsg time.Time
+
+func tick() tea.Msg {
+    time.Sleep(time.Second)
+    return tickMsg{}
+}
+```
+
+### Handling Command Results
+
+Handle the message returned by your command:
+
+```go examples/simple/main.go:55-60
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tickMsg:
+        m--
+        if m <= 0 {
+            return m, tea.Quit
+        }
+        return m, tick
+    }
+    return m, nil
+}
+```
+
+## HTTP Requests
+
+Perform HTTP requests in commands:
+
+```go examples/http/main.go:71-82
+func checkServer() tea.Msg {
+    c := &http.Client{
+        Timeout: 10 * time.Second,
+    }
+    res, err := c.Get(url)
+    if err != nil {
+        return errMsg{err}
+    }
+    defer res.Body.Close()
+
+    return statusMsg(res.StatusCode)
+}
+```
+
+### Define Message Types
+
+Create message types for success and error cases:
+
+```go examples/http/main.go:21-25
+type statusMsg int
+
+type errMsg struct{ error }
+
+func (e errMsg) Error() string { return e.error.Error() }
+```
+
+### Handle Responses
+
+```go examples/http/main.go:38-58
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        switch msg.String() {
+        case "q", "ctrl+c", "esc":
+            return m, tea.Quit
+        }
+
+    case statusMsg:
+        m.status = int(msg)
+        return m, tea.Quit
+
+    case errMsg:
+        m.err = msg
+        return m, nil
+    }
+    return m, nil
+}
+```
+
+### Display Results
+
+```go examples/http/main.go:61-69
+func (m model) View() tea.View {
+    s := fmt.Sprintf("Checking %s...", url)
+    if m.err != nil {
+        s += fmt.Sprintf("something went wrong: %s", m.err)
+    } else if m.status != 0 {
+        s += fmt.Sprintf("%d %s", m.status, http.StatusText(m.status))
+    }
+    return tea.NewView(s + "\n")
+}
+```
+
+## Batch Commands
+
+Run multiple commands concurrently:
+
+```go commands.go:7-17
+func Batch(cmds ...Cmd) Cmd {
+    return compactCmds[BatchMsg](cmds)
+}
+
+// Example usage
+func (m model) Init() tea.Cmd {
+    return tea.Batch(
+        fetchUser,
+        fetchPosts,
+        fetchComments,
+    )
+}
+```
+
+<Note>
+`Batch` runs commands concurrently with no ordering guarantees. Messages may arrive in any order.
+</Note>
+
+### Handling Batched Results
+
+```go
+type model struct {
+    user     User
+    posts    []Post
+    comments []Comment
+    loading  int
+}
+
+func (m model) Init() tea.Cmd {
+    m.loading = 3  // Track pending requests
+    return tea.Batch(fetchUser, fetchPosts, fetchComments)
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case userMsg:
+        m.user = msg
+        m.loading--
+    case postsMsg:
+        m.posts = msg
+        m.loading--
+    case commentsMsg:
+        m.comments = msg
+        m.loading--
+    }
+    return m, nil
+}
+```
+
+## Sequential Commands
+
+Run commands one after another:
+
+```go commands.go:24-30
+func Sequence(cmds ...Cmd) Cmd {
+    return compactCmds[sequenceMsg](cmds)
+}
+
+// Example: Login then fetch data
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    case loginSuccessMsg:
+        return m, tea.Sequence(
+            fetchUserProfile,
+            fetchUserPosts,
+            fetchUserSettings,
+        )
+}
+```
+
+<Note>
+`Sequence` runs commands in order, waiting for each to complete before starting the next.
+</Note>
+
+## Timer Commands
+
+### Tick
+
+Create a timer that fires after a duration:
+
+```go commands.go:116-164
+type TickMsg time.Time
+
+func doTick() tea.Cmd {
+    return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+        return TickMsg(t)
+    })
+}
+
+func (m model) Init() tea.Cmd {
+    return doTick()
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case TickMsg:
+        // Tick occurred - return another Tick to loop
+        return m, doTick()
+    }
+    return m, nil
+}
+```
+
+### Every
+
+Sync with the system clock:
+
+```go commands.go:56-114
+type TickMsg time.Time
+
+func tickEvery() tea.Cmd {
+    return tea.Every(time.Second, func(t time.Time) tea.Msg {
+        return TickMsg(t)
+    })
+}
+
+func (m model) Init() tea.Cmd {
+    return tickEvery()
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case TickMsg:
+        return m, tickEvery()
+    }
+    return m, nil
+}
+```
+
+<Note>
+`Every` aligns with the system clock. If you tick every minute and start at 12:34:20, the first tick happens at 12:35:00 (40 seconds later).
+</Note>
+
+## File I/O
+
+Perform file operations in commands:
+
+```go
+type fileContentMsg string
+type fileErrorMsg error
+
+func readFile(path string) tea.Cmd {
+    return func() tea.Msg {
+        content, err := os.ReadFile(path)
+        if err != nil {
+            return fileErrorMsg(err)
+        }
+        return fileContentMsg(string(content))
+    }
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case fileContentMsg:
+        m.content = string(msg)
+        return m, nil
+    case fileErrorMsg:
+        m.err = error(msg)
+        return m, nil
+    }
+    return m, nil
+}
+```
+
+## Database Operations
+
+```go
+type queryResultMsg []Record
+type queryErrorMsg error
+
+func fetchRecords(db *sql.DB) tea.Cmd {
+    return func() tea.Msg {
+        rows, err := db.Query("SELECT * FROM records")
+        if err != nil {
+            return queryErrorMsg(err)
+        }
+        defer rows.Close()
+        
+        var records []Record
+        for rows.Next() {
+            var r Record
+            if err := rows.Scan(&r.ID, &r.Name); err != nil {
+                return queryErrorMsg(err)
+            }
+            records = append(records, r)
+        }
+        
+        return queryResultMsg(records)
+    }
+}
+```
+
+## Long-Running Operations
+
+For operations that take time, show progress:
+
+```go
+type progressMsg float64
+type completeMsg string
+
+func processLargeFile(path string) tea.Cmd {
+    return func() tea.Msg {
+        file, err := os.Open(path)
+        if err != nil {
+            return errMsg{err}
+        }
+        defer file.Close()
+        
+        // Process in chunks and send progress
+        // Note: This is simplified - you'd need a channel
+        // for real progress updates
+        
+        return completeMsg("Processing complete")
+    }
+}
+
+// For real progress tracking, use channels:
+func processWithProgress(path string) tea.Cmd {
+    return func() tea.Msg {
+        progressChan := make(chan float64)
+        
+        go func() {
+            // Do work and send progress
+            for i := 0; i < 100; i++ {
+                // ... process ...
+                progressChan <- float64(i) / 100.0
+            }
+            close(progressChan)
+        }()
+        
+        // Return channel as message
+        return progressChan
+    }
+}
+```
+
+## Sending Messages to Running Program
+
+Send messages from outside the Update loop:
+
+```go
+type externalMsg string
+
+func main() {
+    p := tea.NewProgram(model{})
+    
+    // Send messages from goroutines
+    go func() {
+        time.Sleep(5 * time.Second)
+        p.Send(externalMsg("Background task complete"))
+    }()
+    
+    if _, err := p.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep Update Pure">
+    Never perform I/O directly in Update - always use commands:
+    
+    ```go
+    // Bad: I/O in Update
+    func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+        data, _ := http.Get("...")  // Don't do this!
+        return m, nil
+    }
+    
+    // Good: I/O in command
+    func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+        return m, fetchData
+    }
+    
+    func fetchData() tea.Msg {
+        data, err := http.Get("...")
+        // ...
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Handle Both Success and Error Cases">
+    Always define message types for errors:
+    
+    ```go examples/http/main.go:21-25
+    type statusMsg int
+    type errMsg struct{ error }
+    
+    func (e errMsg) Error() string { return e.error.Error() }
+    ```
+  </Accordion>
+
+  <Accordion title="Use Descriptive Message Types">
+    Create specific message types instead of generic ones:
+    
+    ```go
+    // Good: Specific types
+    type userLoadedMsg User
+    type postsLoadedMsg []Post
+    
+    // Avoid: Generic types
+    type dataMsg interface{}
+    ```
+  </Accordion>
+
+  <Accordion title="Show Loading States">
+    Track when operations are in progress:
+    
+    ```go
+    type model struct {
+        loading bool
+        data    string
+    }
+    
+    func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+        switch msg := msg.(type) {
+        case startLoadMsg:
+            m.loading = true
+            return m, fetchData
+        case dataMsg:
+            m.loading = false
+            m.data = string(msg)
+        }
+        return m, nil
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Retry Logic
+
+```go
+type retryMsg struct {
+    attempt int
+    maxRetries int
+}
+
+func fetchWithRetry(attempt, maxRetries int) tea.Cmd {
+    return func() tea.Msg {
+        data, err := http.Get("...")
+        if err != nil && attempt < maxRetries {
+            time.Sleep(time.Second * time.Duration(attempt))
+            return retryMsg{attempt + 1, maxRetries}
+        }
+        if err != nil {
+            return errMsg{err}
+        }
+        return dataMsg(data)
+    }
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case retryMsg:
+        return m, fetchWithRetry(msg.attempt, msg.maxRetries)
+    }
+    return m, nil
+}
+```
+
+### Debouncing
+
+```go
+type searchMsg string
+type debounceMsg string
+
+var debounceTimer *time.Timer
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        m.input += msg.String()
+        
+        // Reset debounce timer
+        if debounceTimer != nil {
+            debounceTimer.Stop()
+        }
+        
+        return m, func() tea.Msg {
+            debounceTimer = time.NewTimer(300 * time.Millisecond)
+            <-debounceTimer.C
+            return searchMsg(m.input)
+        }
+        
+    case searchMsg:
+        return m, performSearch(string(msg))
+    }
+    return m, nil
+}
+```
+
+### Polling
+
+```go
+type pollMsg time.Time
+
+func poll() tea.Cmd {
+    return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+        return pollMsg(t)
+    })
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case pollMsg:
+        return m, tea.Batch(fetchLatestData, poll)
+    }
+    return m, nil
+}
+```
+
+## Related
+
+- [Input Handling](/guides/input-handling) - Trigger async operations from user input
+- [Testing](/guides/testing) - Test commands and async behavior
+- [Debugging](/guides/debugging) - Debug async operations

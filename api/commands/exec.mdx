@@ -1,0 +1,176 @@
+---
+title: ExecProcess
+description: Run external commands and interactive applications
+---
+
+## ExecProcess
+
+Runs the given `*exec.Cmd` in a blocking fashion, effectively pausing the Program while the command is running. After the `*exec.Cmd` exits the Program resumes. It's useful for spawning other interactive applications such as editors and shells from within a Program.
+
+```go
+func ExecProcess(c *exec.Cmd, fn ExecCallback) Cmd
+```
+
+<ParamField path="c" type="*exec.Cmd">
+  The `*exec.Cmd` to execute. This is a standard Go `os/exec.Cmd` pointer.
+</ParamField>
+
+<ParamField path="fn" type="ExecCallback">
+  A callback function that receives any error that occurred during execution and returns a message. Can be `nil` if you don't care about errors.
+</ParamField>
+
+### Returns
+
+Returns a `Cmd` that, when executed, runs the external process and blocks until it completes.
+
+### Examples
+
+#### Opening an Editor
+
+```go
+import (
+    "os/exec"
+    tea "github.com/charmbracelet/bubbletea"
+)
+
+type EditorFinishedMsg struct{ err error }
+
+func openEditor(filename string) tea.Cmd {
+    c := exec.Command("vim", filename)
+    return tea.ExecProcess(c, func(err error) tea.Msg {
+        return EditorFinishedMsg{err: err}
+    })
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        if msg.String() == "e" {
+            return m, openEditor("file.txt")
+        }
+    case EditorFinishedMsg:
+        if msg.err != nil {
+            m.err = msg.err
+            return m, nil
+        }
+        // Editor closed successfully, reload file
+        return m, loadFile("file.txt")
+    }
+    return m, nil
+}
+```
+
+#### Running a Shell
+
+```go
+type ShellFinishedMsg struct{ err error }
+
+func openShell() tea.Cmd {
+    c := exec.Command("bash")
+    return tea.ExecProcess(c, func(err error) tea.Msg {
+        return ShellFinishedMsg{err: err}
+    })
+}
+```
+
+#### Ignoring Errors
+
+If you don't care about errors, you can simply pass `nil` as the callback:
+
+```go
+cmd := tea.ExecProcess(exec.Command("vim", "file.txt"), nil)
+```
+
+## ExecCallback
+
+A callback function type used when executing an `*exec.Command` to return a message with an error, which may or may not be nil.
+
+```go
+type ExecCallback func(error) Msg
+```
+
+<ParamField path="error" type="error">
+  The error that occurred during execution, or `nil` if execution was successful.
+</ParamField>
+
+### Returns
+
+Returns a `Msg` that will be sent to your program's `Update` function.
+
+### Example
+
+```go
+type CommandResult struct {
+    success bool
+    err     error
+}
+
+func runCommand(name string, args ...string) tea.Cmd {
+    c := exec.Command(name, args...)
+    return tea.ExecProcess(c, func(err error) tea.Msg {
+        return CommandResult{
+            success: err == nil,
+            err:     err,
+        }
+    })
+}
+```
+
+## ExecCommand
+
+An interface that can be implemented to execute things in a blocking fashion in the current terminal.
+
+```go
+type ExecCommand interface {
+    Run() error
+    SetStdin(io.Reader)
+    SetStdout(io.Writer)
+    SetStderr(io.Writer)
+}
+```
+
+This interface is automatically satisfied by `*exec.Cmd` when wrapped by `ExecProcess`. You typically don't need to implement this interface yourself unless you're creating custom execution behavior.
+
+## Important Notes
+
+### Blocking Behavior
+
+`ExecProcess` **blocks** the entire Bubble Tea program while the command is running. The program will:
+
+1. Release control of the terminal
+2. Run the external command
+3. Wait for it to complete
+4. Restore terminal control
+5. Send the callback message to `Update`
+
+### Interactive vs Non-Interactive
+
+For **non-interactive I/O**, you should use a regular `tea.Cmd` instead of `ExecProcess`. Use `ExecProcess` only when you need:
+
+- User interaction with the external program (editors, shells, etc.)
+- Full terminal control by the external program
+- Blocking behavior
+
+### Example: Non-Interactive Command
+
+```go
+// DON'T use ExecProcess for non-interactive commands
+// Instead, use a regular Cmd:
+
+type GitStatusMsg struct {
+    output string
+    err    error
+}
+
+func getGitStatus() tea.Msg {
+    cmd := exec.Command("git", "status")
+    output, err := cmd.Output()
+    return GitStatusMsg{
+        output: string(output),
+        err:    err,
+    }
+}
+
+// Then use it as a regular command:
+return m, getGitStatus
+```

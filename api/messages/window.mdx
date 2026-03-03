@@ -1,0 +1,280 @@
+---
+title: Window Messages
+description: Handle terminal window size events in Bubble Tea applications
+---
+
+## Overview
+
+Window messages provide information about the terminal window size. Bubble Tea automatically delivers window size messages when your program starts and whenever the terminal is resized.
+
+## Message Types
+
+### WindowSizeMsg
+
+Represents the current terminal window size.
+
+```go
+type WindowSizeMsg struct {
+    Width  int
+    Height int
+}
+```
+
+<ResponseField name="Width" type="int">
+  The width of the terminal window in columns.
+</ResponseField>
+
+<ResponseField name="Height" type="int">
+  The height of the terminal window in rows.
+</ResponseField>
+
+## Functions
+
+### RequestWindowSize
+
+Queries the terminal for its current size and delivers the result via a WindowSizeMsg.
+
+```go
+func RequestWindowSize() Msg
+```
+
+<ParamField name="returns" type="Msg">
+  Returns a message that will trigger a WindowSizeMsg to be delivered to your Update function.
+</ParamField>
+
+<Note>
+In most cases, you don't need to explicitly call `RequestWindowSize()` because:
+- WindowSizeMsg is automatically sent when your program starts
+- WindowSizeMsg is automatically sent whenever the window dimensions change
+
+Only use this function if you need to explicitly query the window size at a specific time.
+</Note>
+
+## Usage Examples
+
+### Basic Window Size Handling
+
+```go
+type model struct {
+    width  int
+    height int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    return tea.NewView(fmt.Sprintf("Terminal size: %dx%d", m.width, m.height))
+}
+```
+
+### Responsive Layout
+
+```go
+type model struct {
+    width  int
+    height int
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+        
+        // Adjust layout based on size
+        if m.width < 80 {
+            m.compactMode = true
+        } else {
+            m.compactMode = false
+        }
+    }
+    return m, nil
+}
+```
+
+### Propagating Size to Components
+
+```go
+import (
+    "github.com/charmbracelet/bubbles/viewport"
+    tea "charm.land/bubbletea/v2"
+)
+
+type model struct {
+    viewport viewport.Model
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    var cmd tea.Cmd
+    
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        // Update viewport dimensions
+        m.viewport.Width = msg.Width
+        m.viewport.Height = msg.Height - 2 // Account for header/footer
+    }
+    
+    m.viewport, cmd = m.viewport.Update(msg)
+    return m, cmd
+}
+```
+
+### Explicitly Requesting Window Size
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyPressMsg:
+        if msg.String() == "r" {
+            // Manually request window size
+            return m, tea.RequestWindowSize
+        }
+    
+    case tea.WindowSizeMsg:
+        return m, tea.Printf("The window size is: %dx%d", msg.Width, msg.Height)
+    }
+    return m, nil
+}
+```
+
+### Adaptive Content Rendering
+
+```go
+type model struct {
+    width  int
+    height int
+    items  []string
+}
+
+func (m model) View() tea.View {
+    var content string
+    
+    // Calculate how many items can fit
+    visibleItems := m.height - 3 // Reserve space for header and footer
+    
+    for i := 0; i < len(m.items) && i < visibleItems; i++ {
+        // Truncate items that are too wide
+        item := m.items[i]
+        if len(item) > m.width {
+            item = item[:m.width-3] + "..."
+        }
+        content += item + "\n"
+    }
+    
+    return tea.NewView(content)
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    }
+    return m, nil
+}
+```
+
+### Centered Content
+
+```go
+import "github.com/charmbracelet/lipgloss"
+
+type model struct {
+    width  int
+    height int
+}
+
+func (m model) View() tea.View {
+    content := "Welcome to my app!"
+    
+    style := lipgloss.NewStyle().
+        Width(m.width).
+        Height(m.height).
+        Align(lipgloss.Center, lipgloss.Center)
+    
+    return tea.NewView(style.Render(content))
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    }
+    return m, nil
+}
+```
+
+### Split View Layout
+
+```go
+type model struct {
+    width     int
+    height    int
+    leftPane  string
+    rightPane string
+}
+
+func (m model) View() tea.View {
+    leftWidth := m.width / 2
+    rightWidth := m.width - leftWidth
+    
+    leftStyle := lipgloss.NewStyle().
+        Width(leftWidth).
+        Height(m.height)
+    
+    rightStyle := lipgloss.NewStyle().
+        Width(rightWidth).
+        Height(m.height)
+    
+    left := leftStyle.Render(m.leftPane)
+    right := rightStyle.Render(m.rightPane)
+    
+    return tea.NewView(lipgloss.JoinHorizontal(lipgloss.Top, left, right))
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+    }
+    return m, nil
+}
+```
+
+### Detecting Small Terminals
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
+        m.width = msg.Width
+        m.height = msg.Height
+        
+        // Warn if terminal is too small
+        if msg.Width < 40 || msg.Height < 10 {
+            m.warning = "Terminal too small. Minimum size: 40x10"
+        } else {
+            m.warning = ""
+        }
+    }
+    return m, nil
+}
+```
+
+## Notes
+
+- WindowSizeMsg is automatically sent to Update when your program starts
+- WindowSizeMsg is automatically sent whenever the terminal is resized
+- On Windows, resize detection may not work as reliably as on Unix systems (SIGWINCH is not available)
+- Width and Height are measured in character cells (columns and rows), not pixels
+- Always handle WindowSizeMsg to ensure your application adapts to different terminal sizes
+- The first WindowSizeMsg is delivered before the first render

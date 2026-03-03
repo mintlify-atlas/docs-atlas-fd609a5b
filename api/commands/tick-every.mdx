@@ -1,0 +1,148 @@
+---
+title: Tick & Every
+description: Create timer-based commands for periodic operations
+---
+
+## Tick
+
+Produces a command at an interval independent of the system clock at the given duration. That is, the timer begins precisely when invoked, and runs for its entire duration.
+
+```go
+func Tick(d time.Duration, fn func(time.Time) Msg) Cmd
+```
+
+<ParamField path="d" type="time.Duration">
+  The duration to wait before the tick fires.
+</ParamField>
+
+<ParamField path="fn" type="func(time.Time) Msg">
+  A function that receives the time at which the tick occurred and returns a message.
+</ParamField>
+
+### Returns
+
+Returns a `Cmd` that waits for the specified duration and then sends the message returned by the provided function.
+
+### Important Note
+
+`Tick` sends a single message and won't automatically dispatch messages at an interval. To do that, you'll want to return another `Tick` command after receiving your tick message.
+
+### Example
+
+```go
+type TickMsg time.Time
+
+func doTick() tea.Cmd {
+    return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+        return TickMsg(t)
+    })
+}
+
+func (m model) Init() (tea.Model, tea.Cmd) {
+    // Start ticking
+    return m, doTick()
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case TickMsg:
+        // Handle the tick
+        m.count++
+        // Return your Tick command again to loop
+        return m, doTick()
+    }
+    return m, nil
+}
+```
+
+## Every
+
+A command that ticks in sync with the system clock. So, if you wanted to tick with the system clock every second, minute or hour you could use this. It's also handy for having different things tick in sync.
+
+```go
+func Every(duration time.Duration, fn func(time.Time) Msg) Cmd
+```
+
+<ParamField path="duration" type="time.Duration">
+  The duration interval to align with the system clock.
+</ParamField>
+
+<ParamField path="fn" type="func(time.Time) Msg">
+  A function that receives the time at which the tick occurred and returns a message.
+</ParamField>
+
+### Returns
+
+Returns a `Cmd` that waits until the next system clock boundary and then sends the message returned by the provided function.
+
+### Clock Synchronization
+
+Because we're ticking with the system clock, the tick will likely not run for the entire specified duration. For example, if we're ticking for one minute and the clock is at 12:34:20, then the next tick will happen at 12:35:00, 40 seconds later.
+
+### Important Note
+
+`Every` sends a single message and won't automatically dispatch messages at an interval. To do that, you'll want to return another `Every` command after receiving your tick message.
+
+### Example
+
+```go
+type TickMsg time.Time
+
+// Send a message every second
+func tickEvery() tea.Cmd {
+    return tea.Every(time.Second, func(t time.Time) tea.Msg {
+        return TickMsg(t)
+    })
+}
+
+func (m model) Init() (tea.Model, tea.Cmd) {
+    // Start ticking
+    return m, tickEvery()
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case TickMsg:
+        // Handle the tick
+        m.timestamp = time.Now()
+        // Return your Every command again to loop
+        return m, tickEvery()
+    }
+    return m, nil
+}
+```
+
+## Tick vs Every
+
+### Use Tick when:
+
+- You need precise timing independent of the system clock
+- You want consistent intervals regardless of when the command starts
+- You're implementing timeouts or delays
+
+```go
+// Wait exactly 5 seconds from now
+tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+    return TimeoutMsg{}
+})
+```
+
+### Use Every when:
+
+- You want to synchronize with the system clock
+- You need multiple timers to tick at the same time
+- You're implementing clock-based updates (every hour, minute, etc.)
+
+```go
+// Tick at the top of every minute
+tea.Every(time.Minute, func(t time.Time) tea.Msg {
+    return ClockUpdateMsg{Time: t}
+})
+```
+
+### Timing Difference Example
+
+If the current time is 12:34:45:
+
+- `Tick(time.Minute, ...)` will fire at 12:35:45 (exactly 60 seconds later)
+- `Every(time.Minute, ...)` will fire at 12:35:00 (at the next minute boundary, only 15 seconds later)

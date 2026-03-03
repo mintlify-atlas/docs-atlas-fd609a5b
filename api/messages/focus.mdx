@@ -1,0 +1,392 @@
+---
+title: Focus Messages
+description: Handle terminal focus events in Bubble Tea applications
+---
+
+## Overview
+
+Focus messages allow your application to respond when the terminal window gains or loses focus. This can be useful for pausing animations, stopping timers, or providing visual feedback about the application state.
+
+<Note>
+Focus event support requires terminal emulator support for focus reporting. Not all terminals support this feature.
+</Note>
+
+## Message Types
+
+### FocusMsg
+
+Represents a terminal focus event, triggered when the terminal gains focus.
+
+```go
+type FocusMsg struct{}
+```
+
+<ParamField name="FocusMsg" type="struct">
+  An empty struct indicating that the terminal has gained focus.
+</ParamField>
+
+### BlurMsg
+
+Represents a terminal blur event, triggered when the terminal loses focus.
+
+```go
+type BlurMsg struct{}
+```
+
+<ParamField name="BlurMsg" type="struct">
+  An empty struct indicating that the terminal has lost focus.
+</ParamField>
+
+## Usage Examples
+
+### Basic Focus Handling
+
+```go
+type model struct {
+    hasFocus bool
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case tea.FocusMsg:
+        m.hasFocus = true
+    case tea.BlurMsg:
+        m.hasFocus = false
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    status := "focused"
+    if !m.hasFocus {
+        status = "unfocused"
+    }
+    return tea.NewView(fmt.Sprintf("Terminal is %s", status))
+}
+```
+
+### Pausing Animation on Blur
+
+```go
+import "time"
+
+type model struct {
+    hasFocus  bool
+    frame     int
+    animating bool
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case tea.FocusMsg:
+        m.hasFocus = true
+        if m.animating {
+            // Resume animation when focused
+            return m, tick()
+        }
+    
+    case tea.BlurMsg:
+        m.hasFocus = false
+        // Animation will pause naturally as we won't send more ticks
+    
+    case tickMsg:
+        if m.hasFocus && m.animating {
+            m.frame++
+            return m, tick()
+        }
+    }
+    return m, nil
+}
+
+type tickMsg time.Time
+
+func tick() tea.Cmd {
+    return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+        return tickMsg(t)
+    })
+}
+```
+
+### Visual Focus Indicator
+
+```go
+import "github.com/charmbracelet/lipgloss"
+
+type model struct {
+    hasFocus bool
+    content  string
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case tea.FocusMsg:
+        m.hasFocus = true
+    case tea.BlurMsg:
+        m.hasFocus = false
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    style := lipgloss.NewStyle().
+        Border(lipgloss.RoundedBorder())
+    
+    if m.hasFocus {
+        style = style.BorderForeground(lipgloss.Color("#00FF00"))
+    } else {
+        style = style.BorderForeground(lipgloss.Color("#808080"))
+    }
+    
+    return tea.NewView(style.Render(m.content))
+}
+```
+
+### Auto-save on Blur
+
+```go
+type model struct {
+    content    string
+    lastSaved  string
+    autoSave   bool
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case tea.BlurMsg:
+        if m.autoSave && m.content != m.lastSaved {
+            // Auto-save when losing focus
+            return m, m.save()
+        }
+    }
+    return m, nil
+}
+
+func (m *model) save() tea.Cmd {
+    return func() tea.Msg {
+        // Perform save operation
+        m.lastSaved = m.content
+        return savedMsg{}
+    }
+}
+```
+
+### Disabling Input Processing on Blur
+
+```go
+type model struct {
+    hasFocus bool
+    input    string
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.FocusMsg:
+        m.hasFocus = true
+    
+    case tea.BlurMsg:
+        m.hasFocus = false
+    
+    case tea.KeyPressMsg:
+        // Only process input when focused
+        if !m.hasFocus {
+            return m, nil
+        }
+        
+        key := msg.Key()
+        if key.Text != "" {
+            m.input += key.Text
+        }
+    }
+    return m, nil
+}
+```
+
+### Notification on Focus Return
+
+```go
+type model struct {
+    hasFocus         bool
+    messagesPending  int
+    showNotification bool
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case tea.FocusMsg:
+        wasBlurred := !m.hasFocus
+        m.hasFocus = true
+        
+        // Show notification if there are pending messages
+        if wasBlurred && m.messagesPending > 0 {
+            m.showNotification = true
+            return m, tea.Batch(
+                m.loadMessages(),
+                clearNotificationAfter(3*time.Second),
+            )
+        }
+    
+    case tea.BlurMsg:
+        m.hasFocus = false
+        m.showNotification = false
+    }
+    return m, nil
+}
+```
+
+### Checking Focus Support
+
+```go
+import "github.com/charmbracelet/x/ansi"
+
+type model struct {
+    supportsFocus bool
+    hasFocus      bool
+}
+
+func (m model) Init() tea.Cmd {
+    // Query terminal for focus event support
+    return tea.Raw(ansi.RequestModeFocusEvent)
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.ModeReportMsg:
+        if msg.Mode == ansi.ModeFocusEvent && !msg.Value.IsNotRecognized() {
+            m.supportsFocus = true
+        }
+    
+    case tea.FocusMsg:
+        if m.supportsFocus {
+            m.hasFocus = true
+        }
+    
+    case tea.BlurMsg:
+        if m.supportsFocus {
+            m.hasFocus = false
+        }
+    }
+    return m, nil
+}
+```
+
+### Dimming UI on Blur
+
+```go
+import "github.com/charmbracelet/lipgloss"
+
+type model struct {
+    hasFocus bool
+    content  string
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case tea.FocusMsg:
+        m.hasFocus = true
+    case tea.BlurMsg:
+        m.hasFocus = false
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    style := lipgloss.NewStyle()
+    
+    if !m.hasFocus {
+        // Dim the content when not focused
+        style = style.Foreground(lipgloss.Color("#808080"))
+    }
+    
+    return tea.NewView(style.Render(m.content))
+}
+```
+
+### Background Task Management
+
+```go
+import "time"
+
+type model struct {
+    hasFocus       bool
+    pollingEnabled bool
+    data           []string
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg.(type) {
+    case tea.FocusMsg:
+        m.hasFocus = true
+        if m.pollingEnabled {
+            // Resume frequent polling when focused
+            return m, pollData(1 * time.Second)
+        }
+    
+    case tea.BlurMsg:
+        m.hasFocus = false
+        if m.pollingEnabled {
+            // Slow down polling when not focused
+            return m, pollData(10 * time.Second)
+        }
+    
+    case pollDataMsg:
+        var cmds []tea.Cmd
+        cmds = append(cmds, m.fetchData())
+        
+        // Schedule next poll based on focus state
+        if m.hasFocus {
+            cmds = append(cmds, pollData(1*time.Second))
+        } else {
+            cmds = append(cmds, pollData(10*time.Second))
+        }
+        
+        return m, tea.Batch(cmds...)
+    }
+    return m, nil
+}
+
+type pollDataMsg time.Time
+
+func pollData(d time.Duration) tea.Cmd {
+    return tea.Tick(d, func(t time.Time) tea.Msg {
+        return pollDataMsg(t)
+    })
+}
+```
+
+## Enabling Focus Reporting
+
+Focus events must be explicitly enabled in your View using the `ReportFocus` field:
+
+```go
+func (m model) View() tea.View {
+    var view tea.View
+    view.ReportFocus = true // Enable focus event reporting
+    view.SetContent("My content here")
+    return view
+}
+```
+
+## Terminal Compatibility
+
+<Warning>
+Focus event support varies by terminal emulator. Terminals that support focus reporting include:
+- Kitty
+- WezTerm
+- iTerm2
+- Alacritty
+- Windows Terminal
+- xterm (with proper configuration)
+- tmux (with focus-events enabled)
+
+In terminals without support, FocusMsg and BlurMsg will not be delivered.
+</Warning>
+
+## Notes
+
+- Focus events require terminal support for the focus reporting mode
+- Not all terminals support focus events - check compatibility if this is a critical feature
+- Focus events work best in modern terminal emulators
+- FocusMsg and BlurMsg are empty structs with no additional data
+- Use focus events to optimize resource usage (e.g., pause animations, reduce polling frequency)
+- Focus state is useful for providing visual feedback about application state
+- Remember to enable focus reporting in your View by setting `ReportFocus = true`

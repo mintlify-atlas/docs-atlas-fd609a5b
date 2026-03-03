@@ -1,0 +1,440 @@
+---
+title: Program
+description: The Program type represents a Bubble Tea terminal user interface application.
+---
+
+## Overview
+
+The `Program` type is the core of a Bubble Tea application. It manages the event loop, rendering, input handling, and lifecycle of your terminal user interface.
+
+## Creating a Program
+
+### NewProgram
+
+Creates a new Program with the given model and options.
+
+<ParamField path="model" type="Model" required>
+  The initial model for the program. This is the only required parameter.
+</ParamField>
+
+<ParamField path="opts" type="...ProgramOption">
+  Variable number of options to configure the program. See [ProgramOption](#programoption) for available options.
+</ParamField>
+
+<ResponseField name="Program" type="*Program">
+  A pointer to the newly created Program instance.
+</ResponseField>
+
+```go
+func NewProgram(model Model, opts ...ProgramOption) *Program
+```
+
+**Example:**
+
+```go
+p := tea.NewProgram(initialModel)
+```
+
+**Example with options:**
+
+```go
+p := tea.NewProgram(
+    initialModel,
+    tea.WithInput(os.Stdin),
+    tea.WithOutput(os.Stdout),
+)
+```
+
+## Program Methods
+
+### Run
+
+Initializes the program and runs its event loops, blocking until it gets terminated.
+
+```go
+func (p *Program) Run() (Model, error)
+```
+
+<ResponseField name="Model" type="Model">
+  The final model state when the program exits.
+</ResponseField>
+
+<ResponseField name="error" type="error">
+  An error if the program was terminated abnormally. Common errors include:
+  - `ErrProgramPanic`: Program recovered from a panic
+  - `ErrProgramKilled`: Program was killed
+  - `ErrInterrupted`: Program received SIGINT or InterruptMsg
+</ResponseField>
+
+**Example:**
+
+```go
+p := tea.NewProgram(model)
+finalModel, err := p.Run()
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Send
+
+Sends a message to the main update function, allowing messages to be injected from outside the program.
+
+```go
+func (p *Program) Send(msg Msg)
+```
+
+<ParamField path="msg" type="Msg" required>
+  The message to send to the update function.
+</ParamField>
+
+**Example:**
+
+```go
+// From outside the program
+p.Send(MyCustomMsg{Data: "hello"})
+```
+
+<Note>
+  If the program hasn't started yet, this will be a blocking operation. If the program has already terminated, this will be a no-op.
+</Note>
+
+### Quit
+
+Convenience function for quitting Bubble Tea programs from outside.
+
+```go
+func (p *Program) Quit()
+```
+
+**Example:**
+
+```go
+// Quit the program from outside
+p.Quit()
+```
+
+<Note>
+  To quit from within a Bubble Tea program, use the `Quit()` command in your Update function instead.
+</Note>
+
+### Kill
+
+Stops the program immediately and restores the former terminal state. The final render is skipped.
+
+```go
+func (p *Program) Kill()
+```
+
+**Example:**
+
+```go
+p.Kill()
+```
+
+<Warning>
+  This skips the final render and immediately restores terminal state. Use `Quit()` for graceful shutdown.
+</Warning>
+
+### Wait
+
+Waits/blocks until the underlying Program finishes shutting down.
+
+```go
+func (p *Program) Wait()
+```
+
+**Example:**
+
+```go
+go func() {
+    p.Run()
+}()
+
+// Do other work...
+
+// Wait for the program to finish
+p.Wait()
+```
+
+### Println
+
+Prints above the Program. This output is unmanaged and will persist across renders.
+
+```go
+func (p *Program) Println(args ...any)
+```
+
+<ParamField path="args" type="...any">
+  Values to print, similar to `fmt.Println`.
+</ParamField>
+
+**Example:**
+
+```go
+p.Println("This message appears above the TUI")
+```
+
+<Note>
+  If the altscreen is active, no output will be printed.
+</Note>
+
+### Printf
+
+Prints above the Program with formatting. Similar to `log.Printf`, the message is printed on its own line.
+
+```go
+func (p *Program) Printf(template string, args ...any)
+```
+
+<ParamField path="template" type="string" required>
+  Format template string.
+</ParamField>
+
+<ParamField path="args" type="...any">
+  Values for the format template.
+</ParamField>
+
+**Example:**
+
+```go
+p.Printf("Received %d items", count)
+```
+
+### ReleaseTerminal
+
+Restores the original terminal state and cancels the input reader. Use with `RestoreTerminal()` to temporarily release control.
+
+```go
+func (p *Program) ReleaseTerminal() error
+```
+
+<ResponseField name="error" type="error">
+  Error if terminal state restoration fails.
+</ResponseField>
+
+**Example:**
+
+```go
+if err := p.ReleaseTerminal(); err != nil {
+    log.Fatal(err)
+}
+// Run another process...
+if err := p.RestoreTerminal(); err != nil {
+    log.Fatal(err)
+}
+```
+
+### RestoreTerminal
+
+Reinitializes the Program's input reader and restores the terminal to the state when the program was running.
+
+```go
+func (p *Program) RestoreTerminal() error
+```
+
+<ResponseField name="error" type="error">
+  Error if terminal restoration fails.
+</ResponseField>
+
+## ProgramOption
+
+Program options are functions that configure a Program. They are passed to `NewProgram`.
+
+### WithContext
+
+Specifies a context in which to run the Program. Useful for cancellation from outside.
+
+```go
+func WithContext(ctx context.Context) ProgramOption
+```
+
+**Example:**
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+p := tea.NewProgram(model, tea.WithContext(ctx))
+```
+
+### WithInput
+
+Sets the input source (defaults to `os.Stdin`). Pass `nil` to disable input entirely.
+
+```go
+func WithInput(input io.Reader) ProgramOption
+```
+
+**Example:**
+
+```go
+p := tea.NewProgram(model, tea.WithInput(nil)) // Disable input
+```
+
+### WithOutput
+
+Sets the output destination (defaults to `os.Stdout`).
+
+```go
+func WithOutput(output io.Writer) ProgramOption
+```
+
+**Example:**
+
+```go
+var buf bytes.Buffer
+p := tea.NewProgram(model, tea.WithOutput(&buf))
+```
+
+### WithEnvironment
+
+Sets environment variables that the program will use. Useful for remote sessions (e.g., SSH).
+
+```go
+func WithEnvironment(env []string) ProgramOption
+```
+
+**Example:**
+
+```go
+env := []string{"TERM=xterm-256color", "COLORTERM=truecolor"}
+p := tea.NewProgram(model, tea.WithEnvironment(env))
+```
+
+### WithoutSignalHandler
+
+Disables the signal handler that Bubble Tea sets up. Use when you want to handle signals yourself.
+
+```go
+func WithoutSignalHandler() ProgramOption
+```
+
+**Example:**
+
+```go
+p := tea.NewProgram(model, tea.WithoutSignalHandler())
+```
+
+### WithoutCatchPanics
+
+Disables panic catching. If disabled, the terminal will be unusable after a panic.
+
+```go
+func WithoutCatchPanics() ProgramOption
+```
+
+<Warning>
+  Use with caution. Without panic catching, your terminal may be left in an unusable state.
+</Warning>
+
+### WithoutRenderer
+
+Disables the renderer. Output and log statements are sent plainly to stdout without rendering logic.
+
+```go
+func WithoutRenderer() ProgramOption
+```
+
+**Example:**
+
+```go
+// Use Bubble Tea for non-TUI mode
+p := tea.NewProgram(model, tea.WithoutRenderer())
+```
+
+### WithFilter
+
+Supplies an event filter invoked before Bubble Tea processes messages. Return `nil` to ignore a message.
+
+```go
+func WithFilter(filter func(Model, Msg) Msg) ProgramOption
+```
+
+**Example:**
+
+```go
+filter := func(m tea.Model, msg tea.Msg) tea.Msg {
+    if _, ok := msg.(tea.QuitMsg); ok {
+        model := m.(myModel)
+        if model.hasUnsavedChanges {
+            return nil // Prevent quit
+        }
+    }
+    return msg
+}
+
+p := tea.NewProgram(model, tea.WithFilter(filter))
+```
+
+### WithFPS
+
+Sets a custom maximum FPS for the renderer (default: 60, max: 120).
+
+```go
+func WithFPS(fps int) ProgramOption
+```
+
+**Example:**
+
+```go
+p := tea.NewProgram(model, tea.WithFPS(30))
+```
+
+### WithColorProfile
+
+Forces a specific color profile instead of auto-detection.
+
+```go
+func WithColorProfile(profile colorprofile.Profile) ProgramOption
+```
+
+**Example:**
+
+```go
+import "github.com/charmbracelet/colorprofile"
+
+p := tea.NewProgram(model, tea.WithColorProfile(colorprofile.TrueColor))
+```
+
+### WithWindowSize
+
+Sets the initial terminal window size. Useful for testing or non-interactive environments.
+
+```go
+func WithWindowSize(width, height int) ProgramOption
+```
+
+**Example:**
+
+```go
+p := tea.NewProgram(model, tea.WithWindowSize(80, 24))
+```
+
+## Error Types
+
+The following errors can be returned by `Program.Run()`:
+
+### ErrProgramPanic
+
+```go
+var ErrProgramPanic = errors.New("program experienced a panic")
+```
+
+Returned when the program recovers from a panic.
+
+### ErrProgramKilled
+
+```go
+var ErrProgramKilled = errors.New("program was killed")
+```
+
+Returned when the program gets killed via `Kill()` or context cancellation.
+
+### ErrInterrupted
+
+```go
+var ErrInterrupted = errors.New("program was interrupted")
+```
+
+Returned when the program receives SIGINT or an `InterruptMsg`.

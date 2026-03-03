@@ -1,0 +1,364 @@
+---
+title: Performance Optimization
+description: Optimize your Bubble Tea applications with FPS control and rendering techniques
+icon: gauge-high
+---
+
+## Overview
+
+Bubble Tea provides several performance optimization features to ensure smooth rendering and efficient resource usage in terminal applications.
+
+## Frame Rate Control
+
+### WithFPS Option
+
+Control the maximum frames per second (FPS) for your application using the `WithFPS` option:
+
+```go
+package main
+
+import (
+    tea "github.com/charmbracelet/bubbletea"
+)
+
+func main() {
+    p := tea.NewProgram(
+        initialModel(),
+        tea.WithFPS(30), // Set to 30 FPS
+    )
+    p.Run()
+}
+```
+
+### FPS Constraints
+
+<Info>
+Bubble Tea enforces FPS limits to balance performance and responsiveness.
+</Info>
+
+- **Default FPS**: 60 frames per second
+- **Minimum FPS**: Values less than 1 default to 60 FPS
+- **Maximum FPS**: 120 frames per second (hard cap)
+
+From `renderer.go:13-14`:
+```go
+const (
+    defaultFPS = 60
+    maxFPS     = 120
+)
+```
+
+### How FPS Works
+
+The FPS setting controls the rendering ticker interval:
+
+```go
+// From tea.go:1372-1379
+func (p *Program) startRenderer() {
+    framerate := time.Second / time.Duration(p.fps)
+    if p.ticker == nil {
+        p.ticker = time.NewTicker(framerate)
+    } else {
+        p.ticker.Reset(framerate)
+    }
+    // ...
+}
+```
+
+The renderer flushes updates at each ticker interval, ensuring consistent frame timing.
+
+## Choosing the Right FPS
+
+<CardGroup cols={3}>
+  <Card title="30 FPS" icon="gauge-simple-low">
+    Good for simple applications, status displays, and reduced CPU usage
+  </Card>
+  <Card title="60 FPS" icon="gauge-simple">
+    Default - smooth for most interactive applications
+  </Card>
+  <Card title="120 FPS" icon="gauge-simple-high">
+    Maximum smoothness for animations and high-frequency updates
+  </Card>
+</CardGroup>
+
+### Performance Considerations
+
+```go
+package main
+
+import (
+    "time"
+    tea "github.com/charmbracelet/bubbletea"
+)
+
+type model struct {
+    animation int
+    fps       int
+}
+
+func (m model) Init() tea.Cmd {
+    return tick()
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tickMsg:
+        m.animation++
+        return m, tick()
+    case tea.KeyMsg:
+        if msg.String() == "q" {
+            return m, tea.Quit
+        }
+    }
+    return m, nil
+}
+
+type tickMsg time.Time
+
+func tick() tea.Cmd {
+    return tea.Tick(time.Millisecond*50, func(t time.Time) tea.Msg {
+        return tickMsg(t)
+    })
+}
+
+func (m model) View() tea.View {
+    return tea.NewView(fmt.Sprintf("Frame: %d", m.animation))
+}
+
+func main() {
+    // For smooth animations, use higher FPS
+    p := tea.NewProgram(
+        model{fps: 60},
+        tea.WithFPS(60),
+    )
+    p.Run()
+}
+```
+
+<Warning>
+Higher FPS increases CPU usage. Choose the lowest FPS that provides acceptable smoothness for your use case.
+</Warning>
+
+## Cell-Based Rendering
+
+Bubble Tea uses cell-based rendering for efficient terminal updates:
+
+### Screen Buffer
+
+The `cursedRenderer` uses a screen buffer to track terminal cells:
+
+```go
+type cursedRenderer struct {
+    w             io.Writer
+    buf           bytes.Buffer         // Updates buffer
+    scr           *uv.TerminalRenderer
+    cellbuf       uv.ScreenBuffer      // Cell-based screen buffer
+    lastView      *View
+    width, height int
+    // ...
+}
+```
+
+### How It Works
+
+1. **View generation**: Your `View()` method returns content
+2. **Cell parsing**: Content is parsed into cells (characters + attributes)
+3. **Diff calculation**: New cells are compared with previous frame
+4. **Minimal updates**: Only changed cells are sent to the terminal
+5. **Cursor optimization**: Cursor movements use optimal escape sequences
+
+<Tip>
+Cell-based rendering means you only pay for what changes between frames, not the entire screen.
+</Tip>
+
+## Rendering Optimizations
+
+### Synchronized Updates
+
+Bubble Tea supports ANSI synchronized output mode (mode 2026) for tear-free rendering:
+
+```go
+// From tea.go:1089-1095
+if !p.disableRenderer && shouldQuerySynchronizedOutput(p.environ) {
+    // Query for synchronized updates support
+    p.execute(ansi.RequestModeSynchronizedOutput +
+        ansi.RequestModeUnicodeCore)
+}
+```
+
+When supported by the terminal, this prevents partial frames from being visible.
+
+### Cursor Movement Optimizations
+
+The renderer can use optimized cursor movements:
+
+```go
+type cursedRenderer struct {
+    hardTabs  bool // Use hard tabs for horizontal movement
+    backspace bool // Use backspace for backward movement
+    // ...
+}
+```
+
+These optimizations reduce the number of bytes sent for cursor positioning.
+
+## Performance Best Practices
+
+### 1. Minimize View Complexity
+
+<CodeGroup>
+```go Good - Efficient View
+func (m model) View() tea.View {
+    // Pre-compute expensive operations
+    content := m.cachedContent
+    return tea.NewView(content)
+}
+```
+
+```go Bad - Expensive View  
+func (m model) View() tea.View {
+    // Avoid expensive operations in View
+    var content string
+    for i := 0; i < 1000; i++ {
+        content += expensiveCalculation(i)
+    }
+    return tea.NewView(content)
+}
+```
+</CodeGroup>
+
+### 2. Cache Rendered Content
+
+```go
+type model struct {
+    data         []string
+    cachedView   string
+    dataDirty    bool
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case dataUpdateMsg:
+        m.data = msg.newData
+        m.dataDirty = true // Mark cache as stale
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    if m.dataDirty {
+        // Rebuild view only when data changes
+        m.cachedView = renderData(m.data)
+        m.dataDirty = false
+    }
+    return tea.NewView(m.cachedView)
+}
+```
+
+### 3. Reduce Update Frequency
+
+```go
+type model struct {
+    lastUpdate time.Time
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case frequentMsg:
+        // Throttle high-frequency updates
+        if time.Since(m.lastUpdate) < 100*time.Millisecond {
+            return m, nil // Skip this update
+        }
+        m.lastUpdate = time.Now()
+        // Process update...
+    }
+    return m, nil
+}
+```
+
+### 4. Use Appropriate FPS
+
+<Tabs>
+  <Tab title="Static Content">
+    ```go
+    // For mostly static displays
+    tea.NewProgram(model{}, tea.WithFPS(30))
+    ```
+  </Tab>
+  <Tab title="Animations">
+    ```go
+    // For smooth animations
+    tea.NewProgram(model{}, tea.WithFPS(60))
+    ```
+  </Tab>
+  <Tab title="High Performance">
+    ```go
+    // For maximum smoothness
+    tea.NewProgram(model{}, tea.WithFPS(120))
+    ```
+  </Tab>
+</Tabs>
+
+## Monitoring Performance
+
+### Enable Tracing
+
+Bubble Tea supports tracing via the `TEA_TRACE` environment variable:
+
+```bash
+TEA_TRACE=/tmp/bubbletea.log ./myapp
+```
+
+This logs internal operations including render timing.
+
+### Measure View Performance
+
+```go
+import (
+    "time"
+    "log"
+)
+
+func (m model) View() tea.View {
+    start := time.Now()
+    defer func() {
+        duration := time.Since(start)
+        if duration > 16*time.Millisecond { // 60 FPS threshold
+            log.Printf("Slow view render: %v", duration)
+        }
+    }()
+    
+    content := buildView(m)
+    return tea.NewView(content)
+}
+```
+
+## Performance Comparison
+
+### FPS vs CPU Usage
+
+| FPS | Frame Time | CPU Impact | Use Case |
+|-----|-----------|------------|----------|
+| 30  | ~33ms     | Low        | Status displays, logs |
+| 60  | ~16ms     | Medium     | Interactive apps (default) |
+| 120 | ~8ms      | High       | Smooth animations |
+
+### Terminal Update Costs
+
+<AccordionGroup>
+  <Accordion title="Full Screen Refresh">
+    Sending the entire screen content every frame. Expensive and unnecessary with cell-based rendering.
+  </Accordion>
+  <Accordion title="Cell-Based Updates">
+    Only updating changed cells. Used by Bubble Tea - efficient for most use cases.
+  </Accordion>
+  <Accordion title="Synchronized Output">
+    Atomic frame updates prevent tearing. Slight overhead but better visual quality.
+  </Accordion>
+</AccordionGroup>
+
+## Related Options
+
+- [Custom Renderer](/advanced/custom-renderer) - Implement custom rendering strategies
+- [WithoutRenderer](/advanced/custom-renderer#disabling-the-renderer) - Disable rendering entirely
+- [Program Options](/core-concepts/program-options) - All available program options

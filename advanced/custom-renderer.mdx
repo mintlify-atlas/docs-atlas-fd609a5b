@@ -1,0 +1,207 @@
+---
+title: Custom Renderer
+description: Learn how to implement custom renderers or disable rendering in Bubble Tea
+icon: paintbrush
+---
+
+## Overview
+
+Bubble Tea provides a flexible rendering system that allows you to customize how your application renders to the terminal, or even disable rendering entirely for non-TUI applications.
+
+## Renderer Interface
+
+The `renderer` interface defines the contract that all renderers must implement:
+
+```go
+type renderer interface {
+    start()                              // Start the renderer
+    close() error                        // Close and flush remaining data
+    render(View)                         // Render a frame to output
+    flush(closing bool) error            // Flush the buffer
+    reset()                              // Reset state to initial
+    insertAbove(string) error            // Insert unmanaged lines above
+    setSyncdUpdates(bool)                // Set synchronized updates
+    setWidthMethod(ansi.Method)          // Set width calculation method
+    resize(int, int)                     // Handle terminal resize
+    setColorProfile(colorprofile.Profile) // Set color profile
+    clearScreen()                        // Clear the screen
+    writeString(string) (int, error)     // Write to output
+    onMouse(MouseMsg) Cmd                // Handle mouse events
+}
+```
+
+## Built-in Renderers
+
+Bubble Tea includes two built-in renderer implementations:
+
+### Cursed Renderer
+
+The default renderer (`cursedRenderer`) provides full-featured terminal rendering:
+
+- **Cell-based rendering**: Uses a screen buffer (`uv.ScreenBuffer`) for efficient updates
+- **Synchronized updates**: Supports ANSI synchronized output mode (mode 2026)
+- **Cursor optimizations**: Optional hard tabs and backspace optimizations
+- **Unicode support**: Handles grapheme width calculations
+- **Mouse support**: Full mouse event handling
+- **Alt screen**: Supports alternate screen buffer
+
+### Nil Renderer
+
+The nil renderer is a no-op implementation that discards all rendering operations. It's automatically used when rendering is disabled.
+
+## Disabling the Renderer
+
+<Note>
+Use `WithoutRenderer` when building CLI tools or daemons that use Bubble Tea's architecture without a TUI.
+</Note>
+
+You can disable rendering entirely using the `WithoutRenderer` option:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    tea "github.com/charmbracelet/bubbletea"
+)
+
+type model struct {
+    processing bool
+}
+
+func (m model) Init() tea.Cmd {
+    return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        if msg.String() == "ctrl+c" {
+            return m, tea.Quit
+        }
+    }
+    return m, nil
+}
+
+func (m model) View() tea.View {
+    // This won't be rendered when using WithoutRenderer
+    return tea.NewView("Processing...")
+}
+
+func main() {
+    // Create a program without a renderer
+    p := tea.NewProgram(
+        model{processing: true},
+        tea.WithoutRenderer(),
+    )
+
+    // Output will be sent plainly to stdout
+    fmt.Println("Starting daemon mode...")
+    
+    if _, err := p.Run(); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+### Use Cases for WithoutRenderer
+
+<CardGroup cols={2}>
+  <Card title="Daemon Mode" icon="server">
+    Run Bubble Tea programs as background services without a TUI
+  </Card>
+  <Card title="Non-TTY Output" icon="file-code">
+    Provide a plain output mode when stdout is not a terminal
+  </Card>
+  <Card title="Testing" icon="vial">
+    Simplify testing by avoiding terminal complexity
+  </Card>
+  <Card title="Logging" icon="clipboard-list">
+    Use Bubble Tea's architecture for structured logging tools
+  </Card>
+</CardGroup>
+
+## Conditional Rendering
+
+You can conditionally enable rendering based on whether output is a TTY:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    tea "github.com/charmbracelet/bubbletea"
+    "github.com/charmbracelet/x/term"
+)
+
+func main() {
+    var opts []tea.ProgramOption
+    
+    // Disable renderer if not running in a terminal
+    if !term.IsTerminal(os.Stdout.Fd()) {
+        opts = append(opts, tea.WithoutRenderer())
+        fmt.Println("Running in non-interactive mode")
+    }
+    
+    p := tea.NewProgram(initialModel(), opts...)
+    
+    if _, err := p.Run(); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+## Output Behavior with WithoutRenderer
+
+When the renderer is disabled:
+
+1. **View output**: The `View()` method is still called, but output is not rendered
+2. **Print functions**: `tea.Println()` and `tea.Printf()` work normally, sending output to stdout
+3. **Input handling**: Input processing continues to work
+4. **Terminal modes**: No terminal mode changes (raw mode, alt screen, etc.)
+5. **Clean output**: Ideal for piping to files or other programs
+
+<Tip>
+When using `WithoutRenderer`, you can still use `tea.Println()` and `tea.Printf()` to output messages during program execution.
+</Tip>
+
+## Custom Renderer Implementation
+
+To implement a custom renderer, create a type that satisfies the `renderer` interface:
+
+```go
+type customRenderer struct {
+    output io.Writer
+    // Add your custom fields
+}
+
+func (r *customRenderer) start() {
+    // Initialize renderer
+}
+
+func (r *customRenderer) render(view tea.View) {
+    // Custom rendering logic
+    fmt.Fprintf(r.output, "Custom: %s\n", view.Content)
+}
+
+func (r *customRenderer) close() error {
+    // Cleanup
+    return nil
+}
+
+// Implement remaining interface methods...
+```
+
+<Warning>
+Custom renderer implementations are advanced usage. The built-in renderers handle most use cases.
+</Warning>
+
+## Related Options
+
+- [Performance Options](/advanced/performance) - Configure FPS and rendering optimizations
+- [Middleware](/advanced/middleware) - Filter and transform messages before rendering
+- [WithOutput](/core-concepts/program-options#withoutput) - Redirect output to custom writers

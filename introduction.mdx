@@ -1,0 +1,71 @@
+---
+title: Introduction
+description: A fun, functional, and stateful way to build terminal applications in Go
+---
+
+Bubble Tea is a Go framework for building terminal applications based on [The Elm Architecture](https://guide.elm-lang.org/architecture/). It's well-suited for simple and complex terminal applications, either inline, full-window, or a mix of both.
+
+## Why Bubble Tea?
+
+Bubble Tea is in use in production and includes a number of features and performance optimizations:
+
+- **High-performance cell-based renderer** for efficient terminal updates
+- **Built-in color downsampling** for consistent appearance across terminals
+- **Declarative views** that make UI logic simple and predictable
+- **High-fidelity keyboard and mouse handling** for rich interactions
+- **Native clipboard support** for seamless copy/paste operations
+- **Functional design** based on The Elm Architecture
+
+## The Elm Architecture
+
+Bubble Tea programs follow a simple, functional pattern. Every application is comprised of a **model** that describes your application state and three methods:
+
+<CardGroup cols={3}>
+  <Card title="Init" icon="play">
+    Returns an initial command for the application to run
+  </Card>
+  <Card title="Update" icon="arrows-rotate">
+    Handles incoming events and updates the model accordingly
+  </Card>
+  <Card title="View" icon="eye">
+    Renders the UI based on the data in the model
+  </Card>
+</CardGroup>
+
+This architecture creates a clean separation between your application logic, state management, and presentation.
+
+## Get started
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first Bubble Tea app in minutes
+  </Card>
+  <Card title="Concepts" icon="book" href="/concepts/architecture">
+    Learn about models, messages, and commands
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/overview">
+    Explore real-world Bubble Tea applications
+  </Card>
+</CardGroup>
+
+## Built with Bubble Tea
+
+Bubble Tea powers over 18,000 applications, including production tools from:
+
+- **Microsoft Azure** – [Aztify](https://github.com/Azure/aztfy) brings Azure resources under Terraform
+- **Daytona** – [Daytona](https://github.com/daytonaio/daytona) is an AI infrastructure platform
+- **Cockroach Labs** – [CockroachDB](https://github.com/cockroachdb/cockroach) cloud-native distributed SQL
+- **AWS** – [eks-node-viewer](https://github.com/awslabs/eks-node-viewer) for EKS cluster visualization
+- **MinIO** – [mc](https://github.com/minio/mc) the official MinIO client
+- **Ubuntu** – [Authd](https://github.com/ubuntu/authd) authentication daemon
+
+And many community favorites like [chezmoi](https://github.com/twpayne/chezmoi), [gh-dash](https://www.github.com/dlvhdr/gh-dash), and [Superfile](https://github.com/yorukot/superfile).
+
+## Ecosystem
+
+Bubble Tea works great with these companion libraries:
+
+- **[Bubbles](https://github.com/charmbracelet/bubbles)** – Common UI components like text inputs, viewports, and spinners
+- **[Lip Gloss](https://github.com/charmbracelet/lipgloss)** – Style, format, and layout tools for terminal applications
+- **[Harmonica](https://github.com/charmbracelet/harmonica)** – Spring animation library for smooth, natural motion
+- **[BubbleZone](https://github.com/lrstanley/bubblezone)** – Easy mouse event tracking for components

@@ -1,0 +1,421 @@
+---
+title: Spinners and Loading States
+description: Display loading indicators with the spinner component
+---
+
+Spinners are animated indicators that show an ongoing process. Bubble Tea includes a spinner component with multiple built-in styles.
+
+## Basic Spinner
+
+Here's a simple loading spinner from `examples/spinner/main.go`:
+
+```go
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+type model struct {
+	spinner  spinner.Model
+	quitting bool
+	err      error
+}
+
+func initialModel() model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	return model{spinner: s}
+}
+
+func (m model) Init() tea.Cmd {
+	return m.spinner.Tick
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "q", "esc", "ctrl+c":
+			m.quitting = true
+			return m, tea.Quit
+		default:
+			return m, nil
+		}
+
+	default:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+}
+
+func (m model) View() tea.View {
+	if m.err != nil {
+		return tea.NewView(m.err.Error())
+	}
+	str := fmt.Sprintf("\n\n   %s Loading forever...press q to quit\n\n", m.spinner.View())
+	if m.quitting {
+		return tea.NewView(str + "\n")
+	}
+	return tea.NewView(str)
+}
+
+func main() {
+	p := tea.NewProgram(initialModel())
+	if _, err := p.Run(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
+```
+
+## Key Concepts
+
+### Initialization
+
+Create a spinner and set its style:
+
+```go
+s := spinner.New()
+s.Spinner = spinner.Dot
+s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+```
+
+### Starting the Spinner
+
+Return the `Tick` command from `Init()`:
+
+```go
+func (m model) Init() tea.Cmd {
+	return m.spinner.Tick
+}
+```
+
+This starts the animation loop.
+
+### Updating the Spinner
+
+Pass all messages to the spinner's `Update()` method:
+
+```go
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		// Handle key presses
+		// ...
+	
+	default:
+		// Let the spinner handle its animation
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+}
+```
+
+### Rendering
+
+Include the spinner in your view:
+
+```go
+func (m model) View() tea.View {
+	str := fmt.Sprintf("%s Loading...", m.spinner.View())
+	return tea.NewView(str)
+}
+```
+
+## Available Spinner Styles
+
+The `examples/spinners` directory shows all available spinner types:
+
+```go
+var spinners = []spinner.Spinner{
+	spinner.Line,
+	spinner.Dot,
+	spinner.MiniDot,
+	spinner.Jump,
+	spinner.Pulse,
+	spinner.Points,
+	spinner.Globe,
+	spinner.Moon,
+	spinner.Monkey,
+}
+```
+
+### Spinner Showcase Example
+
+From `examples/spinners/main.go`:
+
+```go
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+var (
+	spinners = []spinner.Spinner{
+		spinner.Line,
+		spinner.Dot,
+		spinner.MiniDot,
+		spinner.Jump,
+		spinner.Pulse,
+		spinner.Points,
+		spinner.Globe,
+		spinner.Moon,
+		spinner.Monkey,
+	}
+
+	textStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render
+	spinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("69"))
+	helpStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render
+)
+
+type model struct {
+	index   int
+	spinner spinner.Model
+}
+
+func (m model) Init() tea.Cmd {
+	return m.spinner.Tick
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c", "q", "esc":
+			return m, tea.Quit
+		case "h", "left":
+			m.index--
+			if m.index < 0 {
+				m.index = len(spinners) - 1
+			}
+			m.resetSpinner()
+			return m, m.spinner.Tick
+		case "l", "right":
+			m.index++
+			if m.index >= len(spinners) {
+				m.index = 0
+			}
+			m.resetSpinner()
+			return m, m.spinner.Tick
+		default:
+			return m, nil
+		}
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	default:
+		return m, nil
+	}
+}
+
+func (m *model) resetSpinner() {
+	m.spinner = spinner.New()
+	m.spinner.Style = spinnerStyle
+	m.spinner.Spinner = spinners[m.index]
+}
+
+func (m model) View() tea.View {
+	var s string
+	s += fmt.Sprintf("\n %s%s\n\n", m.spinner.View(), textStyle(" Spinning..."))
+	s += helpStyle("h/l, ←/→: change spinner • q: exit\n")
+	return tea.NewView(s)
+}
+
+func main() {
+	m := model{}
+	m.resetSpinner()
+
+	if _, err := tea.NewProgram(m).Run(); err != nil {
+		fmt.Println("could not run program:", err)
+		os.Exit(1)
+	}
+}
+```
+
+## Spinner Style Reference
+
+<Tabs>
+  <Tab title="Line">
+    ```go
+    s.Spinner = spinner.Line
+    ```
+    A simple line that rotates: | / - \
+  </Tab>
+  <Tab title="Dot">
+    ```go
+    s.Spinner = spinner.Dot
+    ```
+    A bouncing dot animation
+  </Tab>
+  <Tab title="MiniDot">
+    ```go
+    s.Spinner = spinner.MiniDot
+    ```
+    A smaller, more subtle dot
+  </Tab>
+  <Tab title="Jump">
+    ```go
+    s.Spinner = spinner.Jump
+    ```
+    A jumping dot effect
+  </Tab>
+  <Tab title="Pulse">
+    ```go
+    s.Spinner = spinner.Pulse
+    ```
+    A pulsing animation
+  </Tab>
+  <Tab title="Points">
+    ```go
+    s.Spinner = spinner.Points
+    ```
+    Progressive dots: . .. ...
+  </Tab>
+  <Tab title="Globe">
+    ```go
+    s.Spinner = spinner.Globe
+    ```
+    A rotating globe
+  </Tab>
+  <Tab title="Moon">
+    ```go
+    s.Spinner = spinner.Moon
+    ```
+    Moon phase animation
+  </Tab>
+  <Tab title="Monkey">
+    ```go
+    s.Spinner = spinner.Monkey
+    ```
+    A fun monkey animation
+  </Tab>
+</Tabs>
+
+## Common Patterns
+
+### Spinner with Long-Running Task
+
+```go
+type model struct {
+	spinner  spinner.Model
+	loading  bool
+	result   string
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case taskCompleteMsg:
+		m.loading = false
+		m.result = msg.result
+		return m, nil
+	
+	default:
+		if m.loading {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
+	}
+	return m, nil
+}
+
+func (m model) View() tea.View {
+	if m.loading {
+		return tea.NewView(fmt.Sprintf("%s Loading...", m.spinner.View()))
+	}
+	return tea.NewView(m.result)
+}
+```
+
+### Custom Spinner Colors
+
+```go
+// Adapt color based on terminal background
+type model struct {
+	spinner      spinner.Model
+	lightStyle   lipgloss.Style
+	darkStyle    lipgloss.Style
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		if msg.IsDark() {
+			m.spinner.Style = m.darkStyle
+		} else {
+			m.spinner.Style = m.lightStyle
+		}
+	}
+	// ...
+}
+```
+
+### Multiple Spinners
+
+```go
+type model struct {
+	spinners []spinner.Model
+	tasks    []string
+}
+
+func (m model) View() tea.View {
+	var b strings.Builder
+	for i, task := range m.tasks {
+		fmt.Fprintf(&b, "%s %s\n", m.spinners[i].View(), task)
+	}
+	return tea.NewView(b.String())
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Start in Init()" icon="play">
+    Always return `spinner.Tick` from your `Init()` function
+  </Card>
+  <Card title="Pass All Messages" icon="share">
+    Forward messages to the spinner in your default case
+  </Card>
+  <Card title="Style Consistently" icon="palette">
+    Match spinner colors to your application theme
+  </Card>
+  <Card title="Show Context" icon="info-circle">
+    Display what's loading alongside the spinner
+  </Card>
+</CardGroup>
+
+## Running the Examples
+
+```bash
+# Basic spinner
+cd examples/spinner
+go run .
+
+# Browse all spinner styles
+cd examples/spinners
+go run .
+```
+
+Use arrow keys or h/l to switch between spinner styles in the showcase example.
+
+## Source Code
+
+- [examples/spinner](https://github.com/charmbracelet/bubbletea/tree/main/examples/spinner) - Basic spinner usage
+- [examples/spinners](https://github.com/charmbracelet/bubbletea/tree/main/examples/spinners) - All spinner styles
+- [examples/progress-download](https://github.com/charmbracelet/bubbletea/tree/main/examples/progress-download) - Spinner with progress
